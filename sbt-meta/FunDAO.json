@@ -1,0 +1,19 @@
+{
+  "name": "Evaluator — Fun DAO",
+  "description": "This Soulbound Token certifies that the holder is an Evaluator of Fun DAO. Evaluators participate in scoring public-goods projects, providing human assessments that contribute to the DAO's impact evaluation process.",
+  "image": "ipfs://bafybeici5qwemryupyc4wxdbmqb3gv7wnf3sjxhqxosj22rfccewcy2yge",
+  "attributes": [
+    {
+      "trait_type": "Role",
+      "value": "Evaluator"
+    },
+    {
+      "trait_type": "DAO",
+      "value": "Fun DAO"
+    },
+    {
+      "trait_type": "Soulbound",
+      "value": "True"
+    }
+  ]
+}
