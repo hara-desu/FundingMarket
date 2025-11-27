@@ -1,5 +1,6 @@
 // TODO:
 // 1.Add events
+// 2. Indexing using thegraph for s_projectsByOwner, s_projectsByRound
 
 // SPDX-License-Identifier: MIT
 
@@ -26,8 +27,11 @@ contract ProjectRegistry {
     mapping(address => mapping(uint256 => uint256)) private s_deposits;
     uint256 public constant PROJECT_DEPOSIT = 0.05 ether;
     uint256 public s_projectId;
+    mapping(address => uint256[]) private s_projectsByOwner;
+    mapping(uint256 => uint256[]) private s_projectsByRound;
 
     struct Project {
+        uint256 projectId;
         address owner;
         string metadataURI;
         uint256 roundId;
@@ -38,6 +42,12 @@ contract ProjectRegistry {
             !evaluatorSbt.isEvaluator(msg.sender),
             "Evaluators are restricted from registering projects"
         );
+        _;
+    }
+
+    modifier onlyProjectOwner(uint256 _projectId) {
+        address projectOwner = s_projects[_projectId].owner;
+        require(msg.sender == projectOwner, "Not the project's owner");
         _;
     }
 
@@ -67,11 +77,14 @@ contract ProjectRegistry {
         }
         s_projectId++;
         s_projects[s_projectId] = Project({
+            projectId: s_projectId,
             owner: msg.sender,
             metadataURI: _metadataURI,
             roundId: roundId
         });
         s_deposits[msg.sender][roundId] += msg.value;
+        s_projectsByOwner[msg.sender].push(s_projectId);
+        s_projectsByRound[roundId].push(s_projectId);
     }
 
     function withdrawAllDepositForRound(uint256 _roundId) external {
@@ -94,5 +107,48 @@ contract ProjectRegistry {
         if (!success) {
             revert ProjectRegistry__TransferFailed();
         }
+    }
+
+    function editMetadataUri(
+        uint256 _projectId,
+        string calldata _metadataUri
+    ) external onlyProjectOwner(_projectId) {
+        if (bytes(_metadataUri).length == 0) {
+            revert ProjectRegistry__InvalidMetadataUri();
+        }
+        s_projects[_projectId].metadataURI = _metadataUri;
+    }
+
+    function getProject(
+        uint256 _projectId
+    )
+        external
+        view
+        returns (address owner, string memory metadataURI, uint256 roundId)
+    {
+        return (
+            s_projects[_projectId].owner,
+            s_projects[_projectId].metadataURI,
+            s_projects[_projectId].roundId
+        );
+    }
+
+    function getDepositForRound(
+        address _user,
+        uint256 _roundId
+    ) external view returns (uint256) {
+        return s_deposits[_user][_roundId];
+    }
+
+    function getProjectsByOwner(
+        address _owner
+    ) external view returns (uint256[] memory) {
+        return s_projectsByOwner[_owner];
+    }
+
+    function getProjectsForRound(
+        uint256 _roundId
+    ) external view returns (uint256[] memory) {
+        return s_projectsByRound[_roundId];
     }
 }

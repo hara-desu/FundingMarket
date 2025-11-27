@@ -1,5 +1,6 @@
 // TODO:
 // Let evaluators hold governance tokens?
+// WIll evaluators be incentivized through governance tokens?
 // Add events
 
 // SPDX-License-Identifier: MIT
@@ -19,6 +20,7 @@ contract EvaluatorGovernor {
     error EvaluatorGovernor__VotingOngoing();
     error EvaluatorGovernor__AlreadyExecuted();
     error EvaluatorGovernor__ZeroReputation();
+    error EvaluatorGovernor__ProposalNotFinalized();
 
     EvaluatorSBT public evaluatorSbt;
 
@@ -26,6 +28,9 @@ contract EvaluatorGovernor {
     mapping(uint256 => EvaluatorProposal) private s_evaluatorProposals;
     mapping(uint256 => ImpactProposal) private s_impactProposals;
     mapping(uint256 => mapping(address => bool)) private s_hasVoted;
+    // roundId => projectId => impactProposalId
+    mapping(uint256 => mapping(uint256 => uint256))
+        public impactProposalIdForProject;
 
     uint8 private MIN_PARTICIPATION_PERCENT = 60;
     uint256 public constant VOTING_PERIOD = 3 days;
@@ -170,6 +175,7 @@ contract EvaluatorGovernor {
             impactScore: 0,
             totalVotes: 0
         });
+        impactProposalIdForProject[_roundId][_projectId] = id;
         return id;
     }
 
@@ -343,5 +349,19 @@ contract EvaluatorGovernor {
         address voter
     ) external view returns (bool) {
         return s_hasVoted[proposalId][voter];
+    }
+
+    function getImpactScoreForProject(
+        uint256 _roundId,
+        uint256 _projectId
+    ) external view returns (uint256) {
+        uint256 proposalId = impactProposalIdForProject[_roundId][_projectId];
+        if (proposalId == 0) {
+            revert EvaluatorGovernor__ProposalDoesNotExist();
+        }
+        if (!s_impactProposals[proposalId].finalized) {
+            revert EvaluatorGovernor__ProposalNotFinalized();
+        }
+        return s_impactProposals[proposalId].impactScore;
     }
 }
