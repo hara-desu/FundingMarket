@@ -1,3 +1,6 @@
+// TODO:
+// 1.Add events
+
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.18;
@@ -14,6 +17,7 @@ contract ProjectRegistry {
     error ProjectRegistry__RoundOngoing();
     error ProjectRegistry__NotEnoughBalance();
     error ProjectRegistry__RoundEnded();
+    error ProjectRegistry__InvalidProjectId();
 
     IRoundManager public roundManager;
     IEvaluatorSBT public evaluatorSbt;
@@ -31,7 +35,7 @@ contract ProjectRegistry {
 
     modifier restrictedForEvaluator() {
         require(
-            !evaluatorSbt.isEvaluator(msg.msg.sender),
+            !evaluatorSbt.isEvaluator(msg.sender),
             "Evaluators are restricted from registering projects"
         );
         _;
@@ -48,19 +52,19 @@ contract ProjectRegistry {
     function registerProject(
         string calldata _metadataURI
     ) external payable restrictedForEvaluator {
-        if (_roundId == 0) {
-            revert ProjectRegistry__InvalidRoundId();
-        }
         if (bytes(_metadataURI).length == 0) {
             revert ProjectRegistry__InvalidMetadataUri();
         }
-        if (msg.value < PROJECT_DEPOSIT) {
+        if (msg.value != PROJECT_DEPOSIT) {
             revert ProjectRegistry__InvalidDepositAmount();
         }
-        if (roundManager.hasRoundEnded()) {
+        uint256 roundId = roundManager.getCurrentRoundId();
+        if (roundId == 0) {
+            revert ProjectRegistry__InvalidRoundId();
+        }
+        if (roundManager.hasRoundEnded(roundId)) {
             revert ProjectRegistry__RoundEnded();
         }
-        uint256 roundId = roundManager.getCurrentRoundId();
         s_projectId++;
         s_projects[s_projectId] = Project({
             owner: msg.sender,
@@ -85,10 +89,10 @@ contract ProjectRegistry {
         if (address(this).balance < deposit) {
             revert ProjectRegistry__NotEnoughBalance();
         }
+        s_deposits[msg.sender][_roundId] -= deposit;
         (bool success, ) = payable(msg.sender).call{value: deposit}("");
         if (!success) {
             revert ProjectRegistry__TransferFailed();
         }
-        s_deposits[msg.sender][_roundId] -= deposit;
     }
 }
