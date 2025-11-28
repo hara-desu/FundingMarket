@@ -24,7 +24,7 @@ contract FundingRoundManager {
     IEvaluatorGovernor public evaluatorGovernor;
     uint256 private s_roundId;
     mapping(uint256 => Round) private s_rounds;
-    address public immutable i_tokenHouseGovernor;
+    address public immutable i_treasury;
     bool private s_roundOngoing;
     uint256 private s_currentRoundId;
     mapping(address => uint256) private s_payouts; // Pull payments with withdraw function
@@ -41,22 +41,19 @@ contract FundingRoundManager {
         bool ongoing;
     }
 
-    modifier onlyTokenHouseGovernor() {
-        require(
-            msg.sender == i_tokenHouseGovernor,
-            "Only Token House Governor allowed"
-        );
+    modifier onlyTreasury() {
+        require(msg.sender == i_treasury, "Only Treasury allowed");
         _;
     }
 
     constructor(
-        address _tokenHouseGovernor,
+        address _treasury,
         address _projectRegistry,
         address _evaluatorGovernor,
         address _fundingMarket
     ) {
         if (
-            _tokenHouseGovernor == address(0) ||
+            _treasury == address(0) ||
             _projectRegistry == address(0) ||
             _evaluatorGovernor == address(0) ||
             _fundingMarket == address(0)
@@ -64,7 +61,7 @@ contract FundingRoundManager {
             revert FundingRoundManager__AddressCannotBeZero();
         }
 
-        i_tokenHouseGovernor = _tokenHouseGovernor;
+        i_treasury = _treasury;
         projectRegistry = IProjectRegistry(_projectRegistry);
         evaluatorGovernor = IEvaluatorGovernor(_evaluatorGovernor);
         fundingMarket = IFundingMarket(_fundingMarket);
@@ -73,7 +70,7 @@ contract FundingRoundManager {
     function startRound(
         uint256 _roundBudget,
         uint256 _endsAt
-    ) external payable onlyTokenHouseGovernor {
+    ) external payable onlyTreasury {
         if (_endsAt <= block.timestamp) {
             revert FundingRoundManager__EndTimeMustBeInTheFuture();
         }
@@ -100,7 +97,7 @@ contract FundingRoundManager {
         s_currentRoundId = s_roundId;
     }
 
-    function endCurrentRound() external onlyTokenHouseGovernor {
+    function endCurrentRound() external onlyTreasury {
         if (s_currentRoundId == 0) {
             revert FundingRoundManager__NoOngoingRounds();
         }
@@ -123,9 +120,9 @@ contract FundingRoundManager {
             // No projects: just return entire budget to TokenHouse
             uint256 returnAmount = s_rounds[roundId].roundRemaining;
             s_rounds[roundId].roundRemaining = 0;
-            (bool success, ) = payable(i_tokenHouseGovernor).call{
-                value: returnAmount
-            }("");
+            (bool success, ) = payable(i_treasury).call{value: returnAmount}(
+                ""
+            );
             if (!success) revert FundingRoundManager__TranferFailed();
             return;
         }
@@ -155,9 +152,7 @@ contract FundingRoundManager {
         // Send the remaining budget back to TokenHouseGovernor
         uint256 returnAmount = s_rounds[roundId].roundRemaining;
         s_rounds[roundId].roundRemaining = 0;
-        (bool success, ) = payable(i_tokenHouseGovernor).call{
-            value: returnAmount
-        }("");
+        (bool success, ) = payable(i_treasury).call{value: returnAmount}("");
         if (!success) {
             revert FundingRoundManager__TranferFailed();
         }

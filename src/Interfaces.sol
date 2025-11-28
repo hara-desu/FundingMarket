@@ -1,5 +1,7 @@
 interface IEvaluatorSBT {
     function isEvaluator(address _address) external view returns (bool);
+
+    function getEvaluatorCount() external view returns (uint256);
 }
 
 interface IRoundManager {
