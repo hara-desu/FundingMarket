@@ -1,76 +1,67 @@
-// // SPDX-License-Identifier: MIT
-// pragma solidity ^0.8.18;
+// SPDX-License-Identifier: MIT
+// Compatible with OpenZeppelin Contracts ^5.5.0
+pragma solidity ^0.8.27;
 
-// import {IEvaluatorSBT} from "@src/Interfaces.sol";
+import {IEvaluatorSBT} from "@src/Interfaces.sol";
 
-// import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-// import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-// import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
+import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-// contract GovernanceToken is ERC20, ERC20Permit, ERC20Votes {
-//     error GovernanceToken__EvaluatorCannotReceiveMint();
-//     error GovernanceToken__ZeroAddress();
-//     error GovernanceToken__NotMinter();
+contract FunDAOToken is ERC20, ERC20Permit, ERC20Votes, Ownable {
+    error FunDAOToken__EvaluatorCannotReceiveTokens();
 
-//     IEvaluatorSBT public immutable evaluatorSbt;
-//     address public immutable i_minter;
+    /// @notice SBT contract used to determine who is an evaluator.
+    IEvaluatorSBT public immutable evaluatorSbt;
 
-//     constructor(
-//         address _evaluatorSbt,
-//         address _minter,
-//         address _initialRecipient,
-//         uint256 _initialSupply
-//     ) ERC20("Fun DAO Token", "FUND") ERC20Permit("Fun DAO Token") {
-//         if (_evaluatorSbt == address(0) || _minter == address(0)) {
-//             revert GovernanceToken__ZeroAddress();
-//         }
+    constructor(
+        address recipient,
+        address timelockAddress,
+        IEvaluatorSBT evaluatorSbt
+    )
+        ERC20("FunDAO Token", "FUND")
+        ERC20Permit("FunDAO Token")
+        Ownable(timelockAddress)
+    {
+        require(recipient != address(0), "Zero initial recipient");
+        require(timelockAddress != address(0), "Zero timelock");
+        require(address(evaluatorSbt) != address(0), "Zero EvaluatorSBT");
 
-//         evaluatorSbt = IEvaluatorSBT(_evaluatorSbt);
-//         i_minter = _minter;
+        evaluatorSbt = evaluatorSbt;
 
-//         if (_initialRecipient != address(0) && _initialSupply > 0) {
-//             _mint(_initialRecipient, _initialSupply);
-//         }
-//     }
+        _mint(recipient, 1000 * 10 ** decimals());
+    }
 
-//     modifier onlyMinter() {
-//         if (msg.sender != i_minter) {
-//             revert GovernanceToken__NotMinter();
-//         }
-//         _;
-//     }
+    /// @notice Mint new FUND tokens. Only the timelock (owner) can call this.
+    /// @dev Governance proposals that mint will be executed by the timelock.
+    function mint(address _to, uint256 _amount) external onlyOwner {
+        // Evaluators cannot receive FUND.
+        if (evaluatorSbt.isEvaluator(_to)) {
+            revert FunDAOToken__EvaluatorCannotReceiveTokens();
+        }
+        _mint(_to, _amount);
+    }
 
-//     function mint(address _to, uint256 _amount) external onlyMinter {
-//         if (_to == address(0)) {
-//             revert GovernanceToken__ZeroAddress();
-//         }
-//         if (evaluatorSbt.isEvaluator(_to)) {
-//             revert GovernanceToken__EvaluatorCannotReceiveMint();
-//         }
-//         _mint(_to, _amount);
-//     }
+    // The following functions are overrides required by Solidity.
 
-//     // ---------- Required overrides for ERC20Votes ----------
+    function _update(
+        address from,
+        address to,
+        uint256 value
+    ) internal override(ERC20, ERC20Votes) {
+        // Block *any* transfer or mint *to* an evaluator.
+        if (to != address(0) && evaluatorSbt.isEvaluator(to)) {
+            revert FunDAOToken__EvaluatorCannotReceiveTokens();
+        }
 
-//     function _afterTokenTransfer(
-//         address from,
-//         address to,
-//         uint256 amount
-//     ) internal override(ERC20, ERC20Votes) {
-//         super._afterTokenTransfer(from, to, amount);
-//     }
+        super._update(from, to, value);
+    }
 
-//     function _mint(
-//         address to,
-//         uint256 amount
-//     ) internal override(ERC20, ERC20Votes) {
-//         super._mint(to, amount);
-//     }
-
-//     function _burn(
-//         address account,
-//         uint256 amount
-//     ) internal override(ERC20, ERC20Votes) {
-//         super._burn(account, amount);
-//     }
-// }
+    function nonces(
+        address owner
+    ) public view override(ERC20Permit, Nonces) returns (uint256) {
+        return super.nonces(owner);
+    }
+}
