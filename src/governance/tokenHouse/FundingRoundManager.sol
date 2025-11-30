@@ -1,40 +1,22 @@
-// TODO:
-// 1. Add events
-// 2. Add getters
-// 3. Add suppports interface
-// 4. Add fallback functions
-// 5. Add non-reentrant modifier
-
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.18;
 
 import {IProjectRegistry, IEvaluatorGovernor, IFundingMarket, IRoundManager} from "@src/Interfaces.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract FundingRoundManager is IRoundManager {
-    error FundingRoundManager__BudgetCannotBeZero();
-    error FundingRoundManager_SendTheRightBudgetAmount();
-    error FundingRoundManager__AnotherRoundOngoing();
-    error FundingRoundManager__NoOngoingRounds();
-    error FundingRoundManager__RoundHasNotEnded();
-    error FundingRoundManager__TranferFailed();
-    error FundingRoundManager_NothingToPay();
-    error FundingRoundManager__AddressCannotBeZero();
-    error FundingRoundManager__EndTimeMustBeInTheFuture();
-    error FundingRoundManager__InvalidRoundId();
+error FundingRoundManager__BudgetCannotBeZero();
+error FundingRoundManager_SendTheRightBudgetAmount();
+error FundingRoundManager__AnotherRoundOngoing();
+error FundingRoundManager__NoOngoingRounds();
+error FundingRoundManager__RoundHasNotEnded();
+error FundingRoundManager__TranferFailed();
+error FundingRoundManager_NothingToPay();
+error FundingRoundManager__AddressCannotBeZero();
+error FundingRoundManager__EndTimeMustBeInTheFuture();
+error FundingRoundManager__InvalidRoundId();
 
-    IProjectRegistry public projectRegistry;
-    IFundingMarket public fundingMarket;
-    IEvaluatorGovernor public evaluatorGovernor;
-    uint256 private s_roundId;
-    mapping(uint256 => Round) private s_rounds;
-    address public immutable i_treasury;
-    bool private s_roundOngoing;
-    uint256 private s_currentRoundId;
-    mapping(address => uint256) private s_payouts; // Pull payments with withdraw function
-    uint256 public constant EVALUATOR_SCORE_WEIGHT = 80;
-    uint256 public constant MARKET_SCORE_WEIGHT = 20;
-
+contract FundingRoundManager is IRoundManager, ReentrancyGuard {
     struct Round {
         uint256 roundId;
         uint256 roundBudget;
@@ -44,6 +26,35 @@ contract FundingRoundManager is IRoundManager {
         uint256 endsAt;
         bool ongoing;
     }
+
+    IProjectRegistry private immutable i_projectRegistry;
+    IFundingMarket private immutable i_fundingMarket;
+    IEvaluatorGovernor private i_evaluatorGovernor;
+    address private immutable i_treasury;
+
+    uint256 private constant EVALUATOR_SCORE_WEIGHT = 80;
+    uint256 private constant MARKET_SCORE_WEIGHT = 20;
+
+    uint256 private s_roundId;
+    bool private s_roundOngoing;
+    uint256 private s_currentRoundId;
+
+    mapping(uint256 => Round) private s_rounds;
+    mapping(address => uint256) private s_payouts;
+
+    event RoundStarted(
+        uint256 indexed s_roundId,
+        uint256 _roundBudget,
+        uint256 _endsAt
+    );
+
+    event RoundEnded(
+        uint256 indexed roundId,
+        uint256 capPerProject,
+        uint256 returnAmount
+    );
+
+    event PaymentsWithdrawn(address indexed recepient, uint256 payout);
 
     modifier onlyTreasury() {
         require(msg.sender == i_treasury, "Only Treasury allowed");
@@ -66,15 +77,15 @@ contract FundingRoundManager is IRoundManager {
         }
 
         i_treasury = _treasury;
-        projectRegistry = IProjectRegistry(_projectRegistry);
-        evaluatorGovernor = IEvaluatorGovernor(_evaluatorGovernor);
-        fundingMarket = IFundingMarket(_fundingMarket);
+        i_projectRegistry = IProjectRegistry(_projectRegistry);
+        i_evaluatorGovernor = IEvaluatorGovernor(_evaluatorGovernor);
+        i_fundingMarket = IFundingMarket(_fundingMarket);
     }
 
     function startRound(
         uint256 _roundBudget,
         uint256 _endsAt
-    ) external payable onlyTreasury {
+    ) external payable onlyTreasury nonReentrant {
         if (_endsAt <= block.timestamp) {
             revert FundingRoundManager__EndTimeMustBeInTheFuture();
         }
@@ -97,11 +108,14 @@ contract FundingRoundManager is IRoundManager {
             endsAt: _endsAt,
             ongoing: true
         });
+
         s_roundOngoing = true;
         s_currentRoundId = s_roundId;
+
+        emit RoundStarted(s_roundId, _roundBudget, _endsAt);
     }
 
-    function endCurrentRound() external onlyTreasury {
+    function endCurrentRound() external onlyTreasury nonReentrant {
         if (s_currentRoundId == 0) {
             revert FundingRoundManager__NoOngoingRounds();
         }
@@ -115,7 +129,7 @@ contract FundingRoundManager is IRoundManager {
         s_roundOngoing = false;
         s_currentRoundId = 0;
 
-        uint256[] memory projectIds = projectRegistry.getProjectsForRound(
+        uint256[] memory projectIds = i_projectRegistry.getProjectsForRound(
             roundId
         );
 
@@ -135,11 +149,9 @@ contract FundingRoundManager is IRoundManager {
 
         for (uint256 i = 0; i < projectIds.length; i++) {
             uint256 projectId = projectIds[i];
-            uint256 evaluatorScore = evaluatorGovernor.getImpactScoreForProject(
-                roundId,
-                projectId
-            );
-            uint256 marketScore = fundingMarket.getMarketScore(projectId);
+            uint256 evaluatorScore = i_evaluatorGovernor
+                .getImpactScoreForProject(roundId, projectId);
+            uint256 marketScore = i_fundingMarket.getMarketScore(projectId);
 
             // Pay to the project
             uint256 finalScore = (EVALUATOR_SCORE_WEIGHT *
@@ -149,7 +161,9 @@ contract FundingRoundManager is IRoundManager {
             uint256 payment = (capPerProject * finalScore) / 100;
             s_rounds[roundId].roundSpent += payment;
             s_rounds[roundId].roundRemaining -= payment;
-            (address projectOwner, , ) = projectRegistry.getProject(projectId);
+            (address projectOwner, , ) = i_projectRegistry.getProject(
+                projectId
+            );
             s_payouts[projectOwner] += payment;
         }
 
@@ -160,9 +174,11 @@ contract FundingRoundManager is IRoundManager {
         if (!success) {
             revert FundingRoundManager__TranferFailed();
         }
+
+        emit RoundEnded(roundId, capPerProject, returnAmount);
     }
 
-    function withdrawAllPayments() external {
+    function withdrawAllPayments() external nonReentrant {
         uint256 payout = s_payouts[msg.sender];
         if (payout == 0) {
             revert FundingRoundManager_NothingToPay();
@@ -172,7 +188,11 @@ contract FundingRoundManager is IRoundManager {
         if (!success) {
             revert FundingRoundManager__TranferFailed();
         }
+
+        emit PaymentsWithdrawn(msg.sender, payout);
     }
+
+    //----------------- Getter Functions -----------------//
 
     function getCurrentRoundId() external view returns (uint256) {
         return s_currentRoundId;
@@ -216,5 +236,17 @@ contract FundingRoundManager is IRoundManager {
 
     function getPayout(address _user) external view returns (uint256) {
         return s_payouts[_user];
+    }
+
+    function isAnyRoundOngoing() external view returns (bool) {
+        return s_roundOngoing;
+    }
+
+    function getScoreWeights()
+        external
+        pure
+        returns (uint256 evaluatorWeight, uint256 marketWeight)
+    {
+        return (EVALUATOR_SCORE_WEIGHT, MARKET_SCORE_WEIGHT);
     }
 }

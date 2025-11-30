@@ -1,10 +1,3 @@
-// TODO:
-// 1. Add events
-// 2. Add getters
-// 3. Add suppports interface
-// 4. Add fallback functions
-// 5. Add non-reentrant modifier
-
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.18;
@@ -12,22 +5,38 @@ pragma solidity ^0.8.18;
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {IEvaluatorSBT} from "@src/Interfaces.sol";
 
+error EvaluatorSBT__TransfersDisabledForSoulbound();
+error EvaluatorSBT__ReputationOutOfRange();
+error EvaluatorSBT__AlreadyEvaluator();
+error EvaluatorSBT__NotEvaluator();
+error EvaluatorSBT__InitialEvaluatorsShouldMatchInitialReputations();
+error EvaluatorSBT__NonexistentToken();
+error EvaluatorSBT__InitialReputationCannotBeZero();
+error EvaluatorSBT__ZeroAddressNotAllowed();
+
 contract EvaluatorSBT is ERC721, IEvaluatorSBT {
-    // reputation restricted to range 0-100
-    mapping(address => uint8) private s_reputations;
-    address public immutable i_evaluatorGovernor;
+    address private immutable i_evaluatorGovernor;
     uint256 private s_tokenId = 1;
-    mapping(address => uint256) private s_evaluatorTokenId;
     uint256 private s_evaluatorCount;
 
-    error EvaluatorSBT__TransfersDisabledForSoulbound();
-    error EvaluatorSBT__ReputationOutOfRange();
-    error EvaluatorSBT__AlreadyEvaluator();
-    error EvaluatorSBT__NotEvaluator();
-    error EvaluatorSBT__InitialEvaluatorsShouldMatchInitialReputations();
-    error EvaluatorSBT__NonexistentToken();
-    error EvaluatorSBT__InitialReputationCannotBeZero();
-    error EvaluatorSBT__ZeroAddressNotAllowed();
+    mapping(address => uint256) private s_evaluatorTokenId;
+    // reputation restricted to range 0-100
+    mapping(address => uint8) private s_reputations;
+
+    event EvaluatorMinted(
+        address indexed evaluator,
+        uint256 indexed tokenId,
+        uint8 reputation
+    );
+
+    event EvaluatorBurned(address indexed evaluator, uint256 indexed tokenId);
+
+    event EvaluatorQuit(address indexed evaluator, uint256 indexed tokenId);
+
+    event EvaluatorReputationUpdated(
+        address indexed evaluator,
+        uint8 newReputation
+    );
 
     modifier onlyEvaluatorGovernor() {
         require(msg.sender == i_evaluatorGovernor, "Not the Governor contract");
@@ -53,19 +62,41 @@ contract EvaluatorSBT is ERC721, IEvaluatorSBT {
         }
     }
 
-    function _update(
-        address to,
-        uint256 tokenId,
-        address auth
-    ) internal virtual override returns (address) {
-        address from = _ownerOf(tokenId);
-
-        // block normal transfers: only allow mint (from == 0) or burn (to == 0)
-        if (from != address(0) && to != address(0)) {
-            revert EvaluatorSBT__TransfersDisabledForSoulbound();
+    function burnEvaluator(address _evaluator) external onlyEvaluatorGovernor {
+        uint256 tokenId = s_evaluatorTokenId[_evaluator];
+        if (tokenId == 0) {
+            revert EvaluatorSBT__NotEvaluator();
         }
 
-        return super._update(to, tokenId, auth);
+        _adjustReputation(_evaluator, 0);
+        delete s_evaluatorTokenId[_evaluator];
+        s_evaluatorCount--;
+        s_reputations[_evaluator] = 0;
+
+        _burn(tokenId);
+
+        emit EvaluatorBurned(_evaluator, tokenId);
+    }
+
+    function quitEvaluator() external {
+        uint256 tokenId = s_evaluatorTokenId[msg.sender];
+        if (tokenId != 0) {
+            delete s_evaluatorTokenId[msg.sender];
+            _adjustReputation(msg.sender, 0);
+            s_evaluatorCount--;
+            _burn(tokenId);
+        } else {
+            revert EvaluatorSBT__NotEvaluator();
+        }
+
+        emit EvaluatorQuit(msg.sender, tokenId);
+    }
+
+    function mintEvaluator(
+        address _to,
+        uint8 _reputation
+    ) external onlyEvaluatorGovernor {
+        _mintEvaluator(_to, _reputation);
     }
 
     function tokenURI(
@@ -78,13 +109,6 @@ contract EvaluatorSBT is ERC721, IEvaluatorSBT {
             "ipfs://bafkreihjnxm6dw2t5453ythuh27nip6dkl3vlqrbub6gpu2qry4ckahfoa";
     }
 
-    function mintEvaluator(
-        address _to,
-        uint8 _reputation
-    ) external onlyEvaluatorGovernor {
-        _mintEvaluator(_to, _reputation);
-    }
-
     function _mintEvaluator(address _to, uint8 _reputation) internal {
         if (_to == address(0)) {
             revert EvaluatorSBT__ZeroAddressNotAllowed();
@@ -95,11 +119,14 @@ contract EvaluatorSBT is ERC721, IEvaluatorSBT {
         if (_reputation == 0) {
             revert EvaluatorSBT__InitialReputationCannotBeZero();
         }
+
         _mint(_to, s_tokenId);
         s_evaluatorTokenId[_to] = s_tokenId;
         s_tokenId++;
         s_evaluatorCount++;
         _adjustReputation(_to, _reputation);
+
+        emit EvaluatorMinted(_to, s_tokenId, _reputation);
     }
 
     function adjustReputation(
@@ -119,31 +146,26 @@ contract EvaluatorSBT is ERC721, IEvaluatorSBT {
         }
 
         s_reputations[_evaluator] = _reputation;
+
+        emit EvaluatorReputationUpdated(_evaluator, _reputation);
     }
 
-    function burnEvaluator(address _evaluator) external onlyEvaluatorGovernor {
-        uint256 tokenId = s_evaluatorTokenId[_evaluator];
-        if (tokenId == 0) {
-            revert EvaluatorSBT__NotEvaluator();
+    function _update(
+        address to,
+        uint256 tokenId,
+        address auth
+    ) internal virtual override returns (address) {
+        address from = _ownerOf(tokenId);
+
+        // block normal transfers: only allow mint (from == 0) or burn (to == 0)
+        if (from != address(0) && to != address(0)) {
+            revert EvaluatorSBT__TransfersDisabledForSoulbound();
         }
-        _adjustReputation(_evaluator, 0);
-        delete s_evaluatorTokenId[_evaluator];
-        s_evaluatorCount--;
-        s_reputations[_evaluator] = 0;
-        _burn(tokenId);
+
+        return super._update(to, tokenId, auth);
     }
 
-    function quitEvaluator() external {
-        uint256 tokenId = s_evaluatorTokenId[msg.sender];
-        if (tokenId != 0) {
-            delete s_evaluatorTokenId[msg.sender];
-            _adjustReputation(msg.sender, 0);
-            s_evaluatorCount--;
-            _burn(tokenId);
-        } else {
-            revert EvaluatorSBT__NotEvaluator();
-        }
-    }
+    //----------------- Getter Functions -----------------//
 
     function getReputation(address _evaluator) external view returns (uint8) {
         return s_reputations[_evaluator];
@@ -161,5 +183,13 @@ contract EvaluatorSBT is ERC721, IEvaluatorSBT {
         address _evaluator
     ) external view returns (uint256) {
         return s_evaluatorTokenId[_evaluator];
+    }
+
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view override(ERC721) returns (bool) {
+        return
+            interfaceId == type(IEvaluatorSBT).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 }

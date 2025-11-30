@@ -1,10 +1,3 @@
-// TODO:
-// 1. Add events
-// 2. Add getters
-// 3. Add suppports interface
-// 4. Add fallback functions
-// 5. Add non-reentrant modifier
-
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.18;
@@ -12,78 +5,62 @@ pragma solidity ^0.8.18;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {FundingMarketToken} from "@src/tokens/FundingMarketToken.sol";
 import {IEvaluatorSBT, IEvaluatorGovernor, IFundingMarket} from "@src/Interfaces.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract FundingMarket is Ownable, IFundingMarket {
-    error FundingMarket__MustProvideETHForInitialLiquidity();
-    error FundingMarket__CannotProvideZeroAddress();
-    error FundingMarket__AmountMustBeGreaterThanZero();
-    error FundingMarket__InsufficientTokenReserve(uint8 side, uint256 amount);
-    error FundingMarket__TokenTransferFailed();
-    error FundingMarket__ETHTransferFailed();
-    error FundingMarket__InsufficientBalance(
-        uint256 tradingAmount,
-        uint256 userBalance
-    );
-    error FundingMarket__InsufficientAllowance(
-        uint256 tradingAmount,
-        uint256 allowance
-    );
-    error FundingMarket__InsufficientLiquidity();
-    error FundingMarket__onlyEvaluatorGovernorCanReport();
-    error FundingMarket__AlreadyFinalized();
-    error FundingMarket__NotFinalized();
-    error FundingMarket__InvalidScore();
-    error FundingMarket__InsufficientLongBalance();
-    error FundingMarket__InsufficientShortBalance();
+error FundingMarket__MustProvideETHForInitialLiquidity();
+error FundingMarket__CannotProvideZeroAddress();
+error FundingMarket__AmountMustBeGreaterThanZero();
+error FundingMarket__InsufficientTokenReserve(uint8 side, uint256 amount);
+error FundingMarket__TokenTransferFailed();
+error FundingMarket__ETHTransferFailed();
+error FundingMarket__InsufficientBalance(
+    uint256 tradingAmount,
+    uint256 userBalance
+);
+error FundingMarket__InsufficientAllowance(
+    uint256 tradingAmount,
+    uint256 allowance
+);
+error FundingMarket__InsufficientLiquidity();
+error FundingMarket__onlyEvaluatorGovernorCanReport();
+error FundingMarket__AlreadyFinalized();
+error FundingMarket__NotFinalized();
+error FundingMarket__InvalidScore();
+error FundingMarket__InsufficientLongBalance();
+error FundingMarket__InsufficientShortBalance();
+error FundingMarket__MustSendExactETHAmount();
 
-    uint256 private constant PRECISION = 1e18;
-
+contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
     enum Side {
         LONG, // pays S/100
         SHORT // pays (100-S)/100
     }
 
-    /// @notice ID of the project this market belongs to.
-    uint256 public immutable i_projectId;
-    uint256 public immutable i_roundId;
+    address private immutable i_evaluatorGovernor;
+    IEvaluatorSBT private immutable i_evaluatorSbt;
+    IEvaluatorGovernor private immutable i_evaluatorGovernorContract;
+    FundingMarketToken private immutable i_longToken;
+    FundingMarketToken private immutable i_shortToken;
 
-    /// @notice evaluatorGovernor that will report the final impact score S ∈ [0,100].
-    address public immutable i_evaluatorGovernor;
-
-    IEvaluatorSBT public immutable i_evaluatorSbt;
-    IEvaluatorGovernor public immutable i_evaluatorGovernorContract;
-
-    /// @notice Token that represents a long position on the impact score.
-    FundingMarketToken public immutable i_longToken;
-
-    /// @notice Token that represents a short position on the impact score.
-    FundingMarketToken public immutable i_shortToken;
-
-    /// @notice Value (in wei) of one "unit" of payoff. 1e16 - 0.01 ETH.
-    uint256 public constant INITIAL_TOKEN_VALUE = 1e16;
-
-    /// @notice Total ETH collateral held in the pool.
+    uint256 private constant INITIAL_TOKEN_VALUE = 1e16;
+    uint256 private constant PRECISION = 1e18;
+    uint256 private immutable i_projectId;
+    uint256 private immutable i_roundId;
     uint256 private s_ethCollateral;
-
-    /// @notice LP trading revenue
     uint256 private s_lpTradingRevenue;
-
-    /// @notice Was the final score reported?
     bool private s_isFinalized;
-
-    /// @notice Final impact score S in [0,100].
     uint8 private s_finalScore; // 0–100
+
+    event LiquidityAdded(uint256 amount);
+    event LiquidityRemoved(uint256 ethWithdrawn, uint256 tokensBurnt);
+    event TokensBought(uint256 amountTokens, uint256 amountWei);
+    event TokensSold(uint256 amountTokens, uint256 amountWei);
+    event RedeemedLong(uint256 amountTokens, uint256 amountWei);
+    event RedeemedShort(uint256 amountTokens, uint256 amountWei);
 
     modifier amountGreaterThanZero(uint256 _amount) {
         if (_amount == 0) {
             revert FundingMarket__AmountMustBeGreaterThanZero();
-        }
-        _;
-    }
-
-    modifier onlyEvaluatorGovernor() {
-        if (msg.sender != i_evaluatorGovernor) {
-            revert FundingMarket__onlyEvaluatorGovernorCanReport();
         }
         _;
     }
@@ -125,7 +102,13 @@ contract FundingMarket is Ownable, IFundingMarket {
         );
     }
 
-    // ───────────────────── Liquidity ─────────────────────
+    receive() external payable {
+        s_ethCollateral += msg.value;
+    }
+
+    fallback() external payable {
+        revert("Invalid call");
+    }
 
     function addLiquidity() external payable onlyOwner {
         // msg.value is the DAO capital for this market
@@ -134,9 +117,13 @@ contract FundingMarket is Ownable, IFundingMarket {
         uint256 tokensToMint = (msg.value * PRECISION) / INITIAL_TOKEN_VALUE;
         i_longToken.mint(address(this), tokensToMint);
         i_shortToken.mint(address(this), tokensToMint);
+
+        emit LiquidityAdded(msg.value);
     }
 
-    function removeLiquidity(uint256 _ethToWithdraw) external onlyOwner {
+    function removeLiquidity(
+        uint256 _ethToWithdraw
+    ) external onlyOwner nonReentrant {
         uint256 tokensToBurn = (_ethToWithdraw * PRECISION) /
             INITIAL_TOKEN_VALUE;
 
@@ -162,12 +149,10 @@ contract FundingMarket is Ownable, IFundingMarket {
         if (!success) {
             revert FundingMarket__ETHTransferFailed();
         }
+
+        emit LiquidityRemoved(_ethToWithdraw, tokensToBurn);
     }
 
-    // ───────────────────── Trading ─────────────────────
-
-    // Altough I already restrict transfers of tokens inside the token contract
-    // should I still check if buyer is evaluator here as well?
     function buyTokensWithETH(
         Side _side,
         uint256 _amountTokenToBuy
@@ -176,7 +161,7 @@ contract FundingMarket is Ownable, IFundingMarket {
 
         uint256 ethNeeded = getBuyPriceInEth(_side, _amountTokenToBuy);
         if (msg.value != ethNeeded) {
-            revert FundingMarket__ETHTransferFailed();
+            revert FundingMarket__MustSendExactETHAmount();
         }
 
         FundingMarketToken token = _side == Side.LONG
@@ -196,12 +181,14 @@ contract FundingMarket is Ownable, IFundingMarket {
         if (!success) {
             revert FundingMarket__TokenTransferFailed();
         }
+
+        emit TokensBought(_amountTokenToBuy, msg.value);
     }
 
     function sellTokensForEth(
         Side _side,
         uint256 _tradingAmount
-    ) external amountGreaterThanZero(_tradingAmount) {
+    ) external amountGreaterThanZero(_tradingAmount) nonReentrant {
         if (s_isFinalized) revert FundingMarket__AlreadyFinalized();
 
         FundingMarketToken token = _side == Side.LONG
@@ -227,11 +214,6 @@ contract FundingMarket is Ownable, IFundingMarket {
 
         s_lpTradingRevenue -= ethToReceive;
 
-        (bool sent, ) = msg.sender.call{value: ethToReceive}("");
-        if (!sent) {
-            revert FundingMarket__ETHTransferFailed();
-        }
-
         bool success = token.transferFrom(
             msg.sender,
             address(this),
@@ -240,9 +222,64 @@ contract FundingMarket is Ownable, IFundingMarket {
         if (!success) {
             revert FundingMarket__TokenTransferFailed();
         }
+
+        (bool sent, ) = msg.sender.call{value: ethToReceive}("");
+        if (!sent) {
+            revert FundingMarket__ETHTransferFailed();
+        }
+
+        emit TokensSold(_tradingAmount, ethToReceive);
     }
 
-    // ───────────────────── Resolution ─────────────────────
+    function redeemLong(
+        uint256 _amount
+    ) external amountGreaterThanZero(_amount) nonReentrant {
+        if (!s_isFinalized) {
+            _reportFinalScore(); // Reverts if impact proposal in EvaluatorGovernor is not finalized
+        }
+
+        if (i_longToken.balanceOf(msg.sender) < _amount) {
+            revert FundingMarket__InsufficientLongBalance();
+        }
+
+        // payoffPerToken = (finalScore / 100) * INITIAL_TOKEN_VALUE / PRECISION
+        uint256 payout = (_amount * INITIAL_TOKEN_VALUE * s_finalScore) /
+            (100 * PRECISION);
+
+        s_ethCollateral -= payout;
+
+        i_longToken.burn(msg.sender, _amount);
+
+        (bool success, ) = msg.sender.call{value: payout}("");
+        if (!success) revert FundingMarket__ETHTransferFailed();
+
+        emit RedeemedLong(_amount, payout);
+    }
+
+    function redeemShort(
+        uint256 _amount
+    ) external amountGreaterThanZero(_amount) nonReentrant {
+        if (!s_isFinalized) {
+            _reportFinalScore(); // Reverts if impact proposal in EvaluatorGovernor is not finalized
+        }
+
+        if (i_shortToken.balanceOf(msg.sender) < _amount) {
+            revert FundingMarket__InsufficientShortBalance();
+        }
+
+        uint256 payout = (_amount *
+            INITIAL_TOKEN_VALUE *
+            (100 - s_finalScore)) / (100 * PRECISION);
+
+        s_ethCollateral -= payout;
+
+        i_shortToken.burn(msg.sender, _amount);
+
+        (bool success, ) = msg.sender.call{value: payout}("");
+        if (!success) revert FundingMarket__ETHTransferFailed();
+
+        emit RedeemedShort(_amount, payout);
+    }
 
     function _reportFinalScore() internal {
         if (s_isFinalized) return;
@@ -256,72 +293,6 @@ contract FundingMarket is Ownable, IFundingMarket {
         s_finalScore = uint8(score);
 
         s_isFinalized = true;
-    }
-
-    /// @notice Redeem LONG after finalScore is known.
-    /// Each LONG pays (finalScore / 100) * INITIAL_TOKEN_VALUE / PRECISION in ETH.
-    function redeemLong(
-        uint256 _amount
-    ) external amountGreaterThanZero(_amount) {
-        if (!s_isFinalized) {
-            _reportFinalScore(); // Reverts if impact proposal in EvaluatorGovernor is not finalized
-        }
-
-        if (i_longToken.balanceOf(msg.sender) < _amount) {
-            revert FundingMarket__InsufficientLongBalance();
-        }
-
-        // payoffPerToken = (finalScore / 100) * INITIAL_TOKEN_VALUE / PRECISION
-        uint256 payout = (_amount * INITIAL_TOKEN_VALUE * s_finalScore) /
-            (100 * PRECISION);
-
-        i_longToken.burn(msg.sender, _amount);
-
-        (bool success, ) = msg.sender.call{value: payout}("");
-        if (!success) revert FundingMarket__ETHTransferFailed();
-
-        s_ethCollateral -= payout;
-    }
-
-    /// @notice Redeem SHORT after finalScore is known.
-    /// Each SHORT pays ((100 - finalScore) / 100) * INITIAL_TOKEN_VALUE / PRECISION in ETH.
-    function redeemShort(
-        uint256 _amount
-    ) external amountGreaterThanZero(_amount) {
-        if (!s_isFinalized) {
-            _reportFinalScore(); // Reverts if impact proposal in EvaluatorGovernor is not finalized
-        }
-
-        if (i_shortToken.balanceOf(msg.sender) < _amount) {
-            revert FundingMarket__InsufficientShortBalance();
-        }
-
-        uint256 payout = (_amount *
-            INITIAL_TOKEN_VALUE *
-            (100 - s_finalScore)) / (100 * PRECISION);
-
-        i_shortToken.burn(msg.sender, _amount);
-
-        (bool success, ) = msg.sender.call{value: payout}("");
-        if (!success) revert FundingMarket__ETHTransferFailed();
-
-        s_ethCollateral -= payout;
-    }
-
-    // ───────────────────── Pricing logic (similar spirit to your code) ─────────────────────
-
-    function getBuyPriceInEth(
-        Side _side,
-        uint256 _tradingAmount
-    ) public view returns (uint256) {
-        return _calculatePriceInEth(_side, _tradingAmount, false);
-    }
-
-    function getSellPriceInEth(
-        Side _side,
-        uint256 _tradingAmount
-    ) public view returns (uint256) {
-        return _calculatePriceInEth(_side, _tradingAmount, true);
     }
 
     function _calculatePriceInEth(
@@ -369,6 +340,8 @@ contract FundingMarket is Ownable, IFundingMarket {
         return (INITIAL_TOKEN_VALUE * probAvg * _tradingAmount) / (PRECISION);
     }
 
+    //----------------- Getter Functions -----------------//
+
     function _getCurrentReserves(
         Side _side
     ) internal view returns (uint256, uint256) {
@@ -385,10 +358,6 @@ contract FundingMarket is Ownable, IFundingMarket {
         }
     }
 
-    // ───────────────────── Market score for FundingRoundManager ─────────────────────
-
-    /// @notice Returns current implied market score in [0,100].
-    /// @dev _projectId is checked against this.market's projectId so you don't mix things up.
     function getMarketScore(
         uint256 _projectId
     ) external view returns (uint256) {
@@ -411,5 +380,68 @@ contract FundingMarket is Ownable, IFundingMarket {
         uint256 impliedScore = (probLong * 100) / PRECISION; // [0,100]
 
         return impliedScore;
+    }
+
+    function getBuyPriceInEth(
+        Side _side,
+        uint256 _tradingAmount
+    ) public view returns (uint256) {
+        return _calculatePriceInEth(_side, _tradingAmount, false);
+    }
+
+    function getSellPriceInEth(
+        Side _side,
+        uint256 _tradingAmount
+    ) public view returns (uint256) {
+        return _calculatePriceInEth(_side, _tradingAmount, true);
+    }
+
+    function getProjectId() external view returns (uint256) {
+        return i_projectId;
+    }
+
+    function getRoundId() external view returns (uint256) {
+        return i_roundId;
+    }
+
+    function getLongToken() external view returns (address) {
+        return address(i_longToken);
+    }
+
+    function getShortToken() external view returns (address) {
+        return address(i_shortToken);
+    }
+
+    function getInitialTokenValue() external pure returns (uint256) {
+        return INITIAL_TOKEN_VALUE;
+    }
+
+    function getEthCollateral() external view returns (uint256) {
+        return s_ethCollateral;
+    }
+
+    function getLpTradingRevenue() external view returns (uint256) {
+        return s_lpTradingRevenue;
+    }
+
+    function isFinalized() external view returns (bool) {
+        return s_isFinalized;
+    }
+
+    function getFinalScore() external view returns (uint8) {
+        return s_finalScore;
+    }
+
+    function getReserves()
+        external
+        view
+        returns (uint256 longReserve, uint256 shortReserve)
+    {
+        longReserve = i_longToken.balanceOf(address(this));
+        shortReserve = i_shortToken.balanceOf(address(this));
+    }
+
+    function getTotalSupply() external view returns (uint256) {
+        return i_longToken.totalSupply();
     }
 }

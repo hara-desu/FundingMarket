@@ -22,7 +22,7 @@ contract TokenHouse is
     GovernorTimelockControl
 {
     /// @notice SBT contract used to detect evaluators.
-    IEvaluatorSBT public immutable evaluatorSbt;
+    IEvaluatorSBT private immutable i_evaluatorSbt;
 
     constructor(
         IVotes _token,
@@ -39,7 +39,7 @@ contract TokenHouse is
             address(_evaluatorSbt) != address(0),
             "EvaluatorSBT cannot be zero"
         );
-        evaluatorSbt = _evaluatorSbt;
+        i_evaluatorSbt = _evaluatorSbt;
     }
 
     /// @dev Override Governor's vote lookup so evaluators always have 0 voting power,
@@ -50,7 +50,7 @@ contract TokenHouse is
         bytes memory params
     ) internal view override(Governor, GovernorVotes) returns (uint256) {
         // If this address is an evaluator, give them zero governance power.
-        if (evaluatorSbt.isEvaluator(account)) {
+        if (i_evaluatorSbt.isEvaluator(account)) {
             return 0;
         }
 
