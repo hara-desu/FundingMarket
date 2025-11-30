@@ -1,13 +1,18 @@
 // TODO:
-// Add events
+// 1. Add events
+// 2. Add getters
+// 3. Add suppports interface
+// 4. Add fallback functions
+// 5. Add non-reentrant modifier
 
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.18;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {IEvaluatorSBT} from "@src/Interfaces.sol";
 
-contract EvaluatorSBT is ERC721 {
+contract EvaluatorSBT is ERC721, IEvaluatorSBT {
     // reputation restricted to range 0-100
     mapping(address => uint8) private s_reputations;
     address public immutable i_evaluatorGovernor;

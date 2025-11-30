@@ -1,13 +1,17 @@
 // TODO:
 // 1. Add events
+// 2. Add getters
+// 3. Add suppports interface
+// 4. Add fallback functions
+// 5. Add non-reentrant modifier
 
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.18;
 
-import {IProjectRegistry, IEvaluatorGovernor, IFundingMarket} from "@src/Interfaces.sol";
+import {IProjectRegistry, IEvaluatorGovernor, IFundingMarket, IRoundManager} from "@src/Interfaces.sol";
 
-contract FundingRoundManager {
+contract FundingRoundManager is IRoundManager {
     error FundingRoundManager__BudgetCannotBeZero();
     error FundingRoundManager_SendTheRightBudgetAmount();
     error FundingRoundManager__AnotherRoundOngoing();

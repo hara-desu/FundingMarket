@@ -1,6 +1,10 @@
 // TODO:
 // 1. Add participation check for evaluators: percentage of projects they voted on in a round
 // 2. Add events
+// 3. Add getters
+// 4. Add suppports interface
+// 5. Add fallback functions
+// 6. Add non-reentrant modifier
 
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;

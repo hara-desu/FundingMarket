@@ -1,14 +1,17 @@
 // TODO:
-// Let evaluators hold governance tokens?
-// WIll evaluators be incentivized through governance tokens?
-// Add events
+// 1. Add events
+// 2. Add getters
+// 3. Add suppports interface
+// 4. Add fallback functions
+// 5. Add non-reentrant modifier
 
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
 import {EvaluatorSBT} from "@src/tokens/EvaluatorSBT.sol";
+import {IEvaluatorGovernor} from "@src/Interfaces.sol";
 
-contract EvaluatorGovernor {
+contract EvaluatorGovernor is IEvaluatorGovernor {
     error EvaluatorGovernor__ZeroAddressNotAllowed();
     error EvaluatorGovernor__ReputationOutOfRange();
     error EvaluatorGovernor__VoteOutOfRange();

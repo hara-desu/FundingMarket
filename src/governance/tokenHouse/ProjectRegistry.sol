@@ -1,14 +1,18 @@
 // TODO:
-// 1.Add events
-// 2. Indexing using thegraph for s_projectsByOwner, s_projectsByRound
+// 1. Add events
+// 2. Add getters
+// 3. Add suppports interface
+// 4. Add fallback functions
+// 5. Add non-reentrant modifier
 
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.18;
 
-import {IEvaluatorSBT, IRoundManager} from "@src/Interfaces.sol";
+import {IEvaluatorSBT, IRoundManager, IProjectRegistry} from "@src/Interfaces.sol";
+import {FundingMarket} from "@src/market/FundingMarket.sol";
 
-contract ProjectRegistry {
+contract ProjectRegistry is IProjectRegistry {
     error ProjectRegistry__ZeroAddressNotAllowed();
     error ProjectRegistry__InvalidRoundId();
     error ProjectRegistry__InvalidMetadataUri();
@@ -19,9 +23,17 @@ contract ProjectRegistry {
     error ProjectRegistry__NotEnoughBalance();
     error ProjectRegistry__RoundEnded();
     error ProjectRegistry__InvalidProjectId();
+    error FundingMarketFactory__MarketAlreadyExists();
 
     IRoundManager public roundManager;
     IEvaluatorSBT public evaluatorSbt;
+
+    address public immutable i_evaluatorGovernor; // to create market
+    address public immutable i_timelock; // to create market
+
+    // projectid => market address
+    mapping(uint256 => address) private s_projectToMarketAddr;
+
     mapping(uint256 => Project) private s_projects;
     // depositor => roundID => deposit
     mapping(address => mapping(uint256 => uint256)) private s_deposits;
@@ -51,12 +63,42 @@ contract ProjectRegistry {
         _;
     }
 
-    constructor(address _roundManager, address _evaluatorSbt) {
-        if (_roundManager == address(0) || _evaluatorSbt == address(0)) {
+    constructor(
+        address _roundManager,
+        address _evaluatorSbt,
+        address _evaluatorGovernor,
+        address _timelock
+    ) {
+        if (
+            _roundManager == address(0) ||
+            _evaluatorSbt == address(0) ||
+            _evaluatorGovernor == address(0) ||
+            _timelock == address(0)
+        ) {
             revert ProjectRegistry__ZeroAddressNotAllowed();
         }
         roundManager = IRoundManager(_roundManager);
         evaluatorSbt = IEvaluatorSBT(_evaluatorSbt);
+        i_evaluatorGovernor = _evaluatorGovernor;
+        i_timelock = _timelock;
+    }
+
+    function createMarket(uint256 _projectId, uint256 _roundId) internal {
+        if (s_projectToMarketAddr[_projectId] != address(0)) {
+            revert FundingMarketFactory__MarketAlreadyExists();
+        }
+
+        address market = address(
+            new FundingMarket(
+                _roundId,
+                _projectId,
+                i_evaluatorGovernor,
+                i_timelock,
+                address(evaluatorSbt)
+            )
+        );
+
+        s_projectToMarketAddr[_projectId] = market;
     }
 
     function registerProject(
@@ -75,6 +117,7 @@ contract ProjectRegistry {
         if (roundManager.hasRoundEnded(roundId)) {
             revert ProjectRegistry__RoundEnded();
         }
+
         s_projectId++;
         s_projects[s_projectId] = Project({
             projectId: s_projectId,
@@ -82,9 +125,12 @@ contract ProjectRegistry {
             metadataURI: _metadataURI,
             roundId: roundId
         });
+
         s_deposits[msg.sender][roundId] += msg.value;
         s_projectsByOwner[msg.sender].push(s_projectId);
         s_projectsByRound[roundId].push(s_projectId);
+
+        createMarket(s_projectId, roundId);
     }
 
     function withdrawAllDepositForRound(uint256 _roundId) external {
