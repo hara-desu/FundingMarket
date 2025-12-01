@@ -14,10 +14,9 @@ contract FunDAOToken is ERC20, ERC20Permit, ERC20Votes, Ownable {
     error FunDAOToken__EvaluatorCannotReceiveTokens();
 
     /// @notice SBT contract used to determine who is an evaluator.
-    IEvaluatorSBT public immutable evaluatorSbt;
+    IEvaluatorSBT public immutable i_evaluatorSbt;
 
     constructor(
-        address recipient,
         address timelockAddress,
         IEvaluatorSBT evaluatorSbt
     )
@@ -25,20 +24,19 @@ contract FunDAOToken is ERC20, ERC20Permit, ERC20Votes, Ownable {
         ERC20Permit("FunDAO Token")
         Ownable(timelockAddress)
     {
-        require(recipient != address(0), "Zero initial recipient");
         require(timelockAddress != address(0), "Zero timelock");
         require(address(evaluatorSbt) != address(0), "Zero EvaluatorSBT");
 
-        evaluatorSbt = evaluatorSbt;
+        i_evaluatorSbt = evaluatorSbt;
 
-        _mint(recipient, 1000 * 10 ** decimals());
+        _mint(timelockAddress, 1000 * 10 ** decimals());
     }
 
     /// @notice Mint new FUND tokens. Only the timelock (owner) can call this.
     /// @dev Governance proposals that mint will be executed by the timelock.
     function mint(address _to, uint256 _amount) external onlyOwner {
         // Evaluators cannot receive FUND.
-        if (evaluatorSbt.isEvaluator(_to)) {
+        if (i_evaluatorSbt.isEvaluator(_to)) {
             revert FunDAOToken__EvaluatorCannotReceiveTokens();
         }
         _mint(_to, _amount);
@@ -52,7 +50,7 @@ contract FunDAOToken is ERC20, ERC20Permit, ERC20Votes, Ownable {
         uint256 value
     ) internal override(ERC20, ERC20Votes) {
         // Block *any* transfer or mint *to* an evaluator.
-        if (to != address(0) && evaluatorSbt.isEvaluator(to)) {
+        if (to != address(0) && i_evaluatorSbt.isEvaluator(to)) {
             revert FunDAOToken__EvaluatorCannotReceiveTokens();
         }
 

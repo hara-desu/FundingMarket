@@ -8,5 +8,5 @@ contract FunDaoTimelock is TimelockController {
         uint256 minDelay,
         address[] memory proposers,
         address[] memory executors
-    ) TimelockController(minDelay, proposers, executors, address(0)) {}
+    ) TimelockController(minDelay, proposers, executors, msg.sender) {}
 }

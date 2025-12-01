@@ -21,6 +21,10 @@ interface IProjectRegistry {
         external
         view
         returns (address owner, string memory metadataURI, uint256 roundId);
+
+    function getMarketForProject(
+        uint256 _projectId
+    ) external view returns (address);
 }
 
 interface IEvaluatorGovernor {

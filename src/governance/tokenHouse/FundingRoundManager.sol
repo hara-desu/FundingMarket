@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.18;
 
-import {IProjectRegistry, IEvaluatorGovernor, IFundingMarket, IRoundManager} from "@src/Interfaces.sol";
+import {IProjectRegistry, IEvaluatorGovernor, IRoundManager, IFundingMarket} from "@src/Interfaces.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 error FundingRoundManager__BudgetCannotBeZero();
@@ -15,6 +15,7 @@ error FundingRoundManager_NothingToPay();
 error FundingRoundManager__AddressCannotBeZero();
 error FundingRoundManager__EndTimeMustBeInTheFuture();
 error FundingRoundManager__InvalidRoundId();
+error FundingRoundManager_ProjectRegistryAlreadySet();
 
 contract FundingRoundManager is IRoundManager, ReentrancyGuard {
     struct Round {
@@ -27,10 +28,9 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
         bool ongoing;
     }
 
-    IProjectRegistry private immutable i_projectRegistry;
-    IFundingMarket private immutable i_fundingMarket;
+    IProjectRegistry private s_projectRegistry;
     IEvaluatorGovernor private i_evaluatorGovernor;
-    address private immutable i_treasury;
+    address private immutable i_timelock;
 
     uint256 private constant EVALUATOR_SCORE_WEIGHT = 80;
     uint256 private constant MARKET_SCORE_WEIGHT = 20;
@@ -38,6 +38,7 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
     uint256 private s_roundId;
     bool private s_roundOngoing;
     uint256 private s_currentRoundId;
+    bool private s_projectRegistrySet;
 
     mapping(uint256 => Round) private s_rounds;
     mapping(address => uint256) private s_payouts;
@@ -56,36 +57,33 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
 
     event PaymentsWithdrawn(address indexed recepient, uint256 payout);
 
-    modifier onlyTreasury() {
-        require(msg.sender == i_treasury, "Only Treasury allowed");
+    modifier onlyTimelock() {
+        require(msg.sender == i_timelock, "Only timelock allowed");
         _;
     }
 
-    constructor(
-        address _treasury,
-        address _projectRegistry,
-        address _evaluatorGovernor,
-        address _fundingMarket
-    ) {
-        if (
-            _treasury == address(0) ||
-            _projectRegistry == address(0) ||
-            _evaluatorGovernor == address(0) ||
-            _fundingMarket == address(0)
-        ) {
+    constructor(address _timelock, address _evaluatorGovernor) {
+        if (_timelock == address(0) || _evaluatorGovernor == address(0)) {
             revert FundingRoundManager__AddressCannotBeZero();
         }
 
-        i_treasury = _treasury;
-        i_projectRegistry = IProjectRegistry(_projectRegistry);
+        i_timelock = _timelock;
         i_evaluatorGovernor = IEvaluatorGovernor(_evaluatorGovernor);
-        i_fundingMarket = IFundingMarket(_fundingMarket);
+    }
+
+    function setProjectRegistry(address _registry) external {
+        if (_registry == address(0))
+            revert FundingRoundManager__AddressCannotBeZero();
+        if (s_projectRegistrySet == true)
+            revert FundingRoundManager_ProjectRegistryAlreadySet();
+        s_projectRegistrySet = true;
+        s_projectRegistry = IProjectRegistry(_registry);
     }
 
     function startRound(
         uint256 _roundBudget,
         uint256 _endsAt
-    ) external payable onlyTreasury nonReentrant {
+    ) external payable onlyTimelock nonReentrant {
         if (_endsAt <= block.timestamp) {
             revert FundingRoundManager__EndTimeMustBeInTheFuture();
         }
@@ -115,7 +113,7 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
         emit RoundStarted(s_roundId, _roundBudget, _endsAt);
     }
 
-    function endCurrentRound() external onlyTreasury nonReentrant {
+    function endCurrentRound() external onlyTimelock nonReentrant {
         if (s_currentRoundId == 0) {
             revert FundingRoundManager__NoOngoingRounds();
         }
@@ -129,7 +127,7 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
         s_roundOngoing = false;
         s_currentRoundId = 0;
 
-        uint256[] memory projectIds = i_projectRegistry.getProjectsForRound(
+        uint256[] memory projectIds = s_projectRegistry.getProjectsForRound(
             roundId
         );
 
@@ -138,7 +136,7 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
             // No projects: just return entire budget to TokenHouse
             uint256 returnAmount = s_rounds[roundId].roundRemaining;
             s_rounds[roundId].roundRemaining = 0;
-            (bool success, ) = payable(i_treasury).call{value: returnAmount}(
+            (bool success, ) = payable(i_timelock).call{value: returnAmount}(
                 ""
             );
             if (!success) revert FundingRoundManager__TranferFailed();
@@ -151,7 +149,11 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
             uint256 projectId = projectIds[i];
             uint256 evaluatorScore = i_evaluatorGovernor
                 .getImpactScoreForProject(roundId, projectId);
-            uint256 marketScore = i_fundingMarket.getMarketScore(projectId);
+            address fundingMarketAddr = s_projectRegistry.getMarketForProject(
+                projectId
+            );
+            IFundingMarket fundingMarket = IFundingMarket(fundingMarketAddr);
+            uint256 marketScore = fundingMarket.getMarketScore(projectId);
 
             // Pay to the project
             uint256 finalScore = (EVALUATOR_SCORE_WEIGHT *
@@ -161,7 +163,7 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
             uint256 payment = (capPerProject * finalScore) / 100;
             s_rounds[roundId].roundSpent += payment;
             s_rounds[roundId].roundRemaining -= payment;
-            (address projectOwner, , ) = i_projectRegistry.getProject(
+            (address projectOwner, , ) = s_projectRegistry.getProject(
                 projectId
             );
             s_payouts[projectOwner] += payment;
@@ -170,7 +172,7 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
         // Send the remaining budget back to TokenHouseGovernor
         uint256 returnAmount = s_rounds[roundId].roundRemaining;
         s_rounds[roundId].roundRemaining = 0;
-        (bool success, ) = payable(i_treasury).call{value: returnAmount}("");
+        (bool success, ) = payable(i_timelock).call{value: returnAmount}("");
         if (!success) {
             revert FundingRoundManager__TranferFailed();
         }

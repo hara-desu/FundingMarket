@@ -61,8 +61,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     mapping(uint256 => mapping(uint256 => uint256))
         private s_impactProposalIdForProject;
 
-    address private immutable i_roundManager;
-    EvaluatorSBT private s_evaluatorSbt;
+    EvaluatorSBT private immutable i_evaluatorSbt;
 
     event AddEvaluatorProposalAdded(
         uint256 indexed id,
@@ -98,7 +97,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
 
     modifier onlyEvaluator() {
         require(
-            s_evaluatorSbt.isEvaluator(msg.sender),
+            i_evaluatorSbt.isEvaluator(msg.sender),
             "Should be an evaluator"
         );
         _;
@@ -106,31 +105,21 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
 
     modifier targetIsEvaluator(address _target) {
         require(
-            s_evaluatorSbt.isEvaluator(_target),
+            i_evaluatorSbt.isEvaluator(_target),
             "Target address should be an evaluator"
-        );
-        _;
-    }
-
-    modifier onlyRoundManager() {
-        require(
-            msg.sender == i_roundManager,
-            "Only RoundManager can call this function."
         );
         _;
     }
 
     constructor(
         address[] memory _initialEvaluators,
-        uint8[] memory _initialReputations,
-        address _roundManager
+        uint8[] memory _initialReputations
     ) {
-        s_evaluatorSbt = new EvaluatorSBT(
+        i_evaluatorSbt = new EvaluatorSBT(
             _initialEvaluators,
             _initialReputations,
             address(this)
         );
-        i_roundManager = _roundManager;
     }
 
     function proposeAddEvaluator(
@@ -217,7 +206,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         uint256 _roundId,
         uint256 _projectId,
         uint256 _votingPeriod
-    ) external onlyRoundManager returns (uint256) {
+    ) external returns (uint256) {
         uint256 id = s_proposalId++;
         s_impactProposals[id] = ImpactProposal({
             roundId: _roundId,
@@ -294,7 +283,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             revert EvaluatorGovernor__VoteOutOfRange();
         }
 
-        uint8 reputation = s_evaluatorSbt.getReputation(msg.sender);
+        uint8 reputation = i_evaluatorSbt.getReputation(msg.sender);
         if (reputation == 0) {
             revert EvaluatorGovernor__ZeroReputation();
         }
@@ -324,7 +313,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         }
         uint256 percentageYes = (proposal.yesVotes * 100) / votesTotal;
 
-        uint256 totalEvaluators = s_evaluatorSbt.getEvaluatorCount();
+        uint256 totalEvaluators = i_evaluatorSbt.getEvaluatorCount();
         if (votesTotal * 100 < totalEvaluators * MIN_PARTICIPATION_PERCENT) {
             revert EvaluatorGovernor__QuorumNotMet();
         }
@@ -333,7 +322,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             if (percentageYes < YES_ADD_EVALUATOR) {
                 delete s_evaluatorProposals[_proposalId];
             } else {
-                s_evaluatorSbt.mintEvaluator(
+                i_evaluatorSbt.mintEvaluator(
                     proposal.targetEvaluator,
                     uint8(proposal.newReputation)
                 );
@@ -344,7 +333,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             if (percentageYes < YES_REMOVE_EVALUATOR) {
                 delete s_evaluatorProposals[_proposalId];
             } else {
-                s_evaluatorSbt.burnEvaluator(proposal.targetEvaluator);
+                i_evaluatorSbt.burnEvaluator(proposal.targetEvaluator);
                 delete s_evaluatorProposals[_proposalId];
             }
         }
@@ -352,7 +341,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             if (percentageYes < YES_ADJUST_REP) {
                 delete s_evaluatorProposals[_proposalId];
             } else {
-                s_evaluatorSbt.adjustReputation(
+                i_evaluatorSbt.adjustReputation(
                     proposal.targetEvaluator,
                     uint8(proposal.newReputation)
                 );
@@ -382,7 +371,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             revert EvaluatorGovernor__NoVotes();
         }
 
-        uint256 totalEvaluators = s_evaluatorSbt.getEvaluatorCount();
+        uint256 totalEvaluators = i_evaluatorSbt.getEvaluatorCount();
         if (
             proposal.totalVotes * 100 <
             totalEvaluators * MIN_PARTICIPATION_PERCENT
@@ -398,12 +387,6 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     }
 
     //----------------- Getter Functions -----------------//
-
-    function getImpactScore(
-        uint256 _proposalId
-    ) external view returns (uint256) {
-        return s_impactProposals[_proposalId].impactScore;
-    }
 
     function getEvaluatorProposal(
         uint256 id
@@ -439,11 +422,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     }
 
     function getEvaluatorSbt() external view returns (address) {
-        return address(s_evaluatorSbt);
-    }
-
-    function getRoundManager() external view returns (address) {
-        return i_roundManager;
+        return address(i_evaluatorSbt);
     }
 
     function getMinParticipationPercent() external view returns (uint8) {
@@ -457,11 +436,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     function getYesThresholds()
         external
         pure
-        returns (
-            uint256 yesAddEvaluator,
-            uint256 yesRemoveEvaluator,
-            uint256 yesAdjustReputation
-        )
+        returns (uint256, uint256, uint256)
     {
         return (YES_ADD_EVALUATOR, YES_REMOVE_EVALUATOR, YES_ADJUST_REP);
     }
@@ -471,13 +446,5 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         uint256 projectId
     ) external view returns (uint256) {
         return s_impactProposalIdForProject[roundId][projectId];
-    }
-
-    function getEvaluatorSbt() external view returns (address) {
-        return address(s_evaluatorSbt);
-    }
-
-    function getRoundManager() external view returns (address) {
-        return i_roundManager;
     }
 }

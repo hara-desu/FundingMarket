@@ -13,7 +13,7 @@ import {TimelockController} from "@openzeppelin/contracts/governance/TimelockCon
 
 import {IEvaluatorSBT} from "@src/Interfaces.sol";
 
-contract TokenHouse is
+contract TokenHouseGovernor is
     Governor,
     GovernorSettings,
     GovernorCountingSimple,
@@ -27,7 +27,7 @@ contract TokenHouse is
     constructor(
         IVotes _token,
         TimelockController _timelock,
-        IEvaluatorSBT _evaluatorSbt
+        address _evaluatorSbt
     )
         Governor("TokenHouse")
         GovernorSettings(7200 /* 1 day */, 21600 /* 3 days */, 0)
@@ -39,7 +39,7 @@ contract TokenHouse is
             address(_evaluatorSbt) != address(0),
             "EvaluatorSBT cannot be zero"
         );
-        i_evaluatorSbt = _evaluatorSbt;
+        i_evaluatorSbt = IEvaluatorSBT(_evaluatorSbt);
     }
 
     /// @dev Override Governor's vote lookup so evaluators always have 0 voting power,
