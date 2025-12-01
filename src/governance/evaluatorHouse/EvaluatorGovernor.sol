@@ -425,6 +425,10 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         return address(i_evaluatorSbt);
     }
 
+    function getEvaluatorSbtContract() external view returns (EvaluatorSBT) {
+        return i_evaluatorSbt;
+    }
+
     function getMinParticipationPercent() external view returns (uint8) {
         return MIN_PARTICIPATION_PERCENT;
     }

@@ -81,3 +81,76 @@ contract DeployProjectLocal is Script {
         vm.stopBroadcast();
     }
 }
+
+contract DeployForestOchainSepolia is Script {
+    EvaluatorGovernor public evaluatorGovernor;
+    FunDaoTimelock public timelock;
+    FunDAOToken public governanceToken;
+    TokenHouseGovernor public tokenHouseGovernor;
+    FundingRoundManager public fundingRoundManager;
+    ProjectRegistry public projectRegistry;
+    EvaluatorIncentives public evaluatorIncentives;
+
+    address[] public initialEvaluators = [
+        0x803752055A2499E7F2e25F90937c89e685dc01db
+    ];
+    uint8[] public initialReputations = [75];
+    uint256 public MIN_DELAY = 1 days;
+    address[] public proposers;
+    address[] public executors = [address(0)];
+
+    function run() public {
+        require(
+            block.chainid == 11155111,
+            "DeployGovernanceSepolia: wrong network (not Sepolia)"
+        );
+
+        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
+
+        vm.startBroadcast();
+        evaluatorGovernor = new EvaluatorGovernor(
+            initialEvaluators,
+            initialReputations
+        );
+        address evaluatorSbt = evaluatorGovernor.getEvaluatorSbt();
+        timelock = new FunDaoTimelock(MIN_DELAY, proposers, executors);
+        governanceToken = new FunDAOToken(
+            address(timelock),
+            IEvaluatorSBT(evaluatorSbt)
+        );
+        tokenHouseGovernor = new TokenHouseGovernor(
+            governanceToken,
+            timelock,
+            evaluatorSbt
+        );
+
+        timelock.grantRole(
+            timelock.PROPOSER_ROLE(),
+            address(tokenHouseGovernor)
+        );
+
+        timelock.revokeRole(timelock.DEFAULT_ADMIN_ROLE(), msg.sender);
+
+        fundingRoundManager = new FundingRoundManager(
+            address(timelock),
+            address(evaluatorGovernor)
+        );
+
+        projectRegistry = new ProjectRegistry(
+            address(fundingRoundManager),
+            evaluatorSbt,
+            address(evaluatorGovernor),
+            address(timelock)
+        );
+
+        fundingRoundManager.setProjectRegistry(address(projectRegistry));
+
+        evaluatorIncentives = new EvaluatorIncentives(
+            address(timelock),
+            evaluatorSbt,
+            address(fundingRoundManager)
+        );
+
+        vm.stopBroadcast();
+    }
+}

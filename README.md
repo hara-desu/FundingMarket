@@ -1,4 +1,4 @@
-# **FunDAO Protocol – README**
+# **Funding Market Protocol – README**
 
 A decentralized funding protocol combining **prediction markets**, **evaluator governance**, and **quadratic-style scoring** to allocate capital to public-good projects in discrete funding rounds.
 

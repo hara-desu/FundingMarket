@@ -2,6 +2,7 @@
 
 pragma solidity ^0.8.18;
 
+import {console} from "forge-std/console.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {IEvaluatorSBT} from "@src/Interfaces.sol";
 
@@ -80,14 +81,14 @@ contract EvaluatorSBT is ERC721, IEvaluatorSBT {
 
     function quitEvaluator() external {
         uint256 tokenId = s_evaluatorTokenId[msg.sender];
-        if (tokenId != 0) {
-            delete s_evaluatorTokenId[msg.sender];
-            _adjustReputation(msg.sender, 0);
-            s_evaluatorCount--;
-            _burn(tokenId);
-        } else {
+        if (tokenId == 0) {
             revert EvaluatorSBT__NotEvaluator();
         }
+
+        _adjustReputation(msg.sender, 0);
+        s_evaluatorTokenId[msg.sender] = 0;
+        s_evaluatorCount--;
+        _burn(tokenId);
 
         emit EvaluatorQuit(msg.sender, tokenId);
     }
@@ -99,14 +100,11 @@ contract EvaluatorSBT is ERC721, IEvaluatorSBT {
         _mintEvaluator(_to, _reputation);
     }
 
-    function tokenURI(
-        uint256 tokenId
-    ) public view virtual override returns (string memory) {
-        if (_ownerOf(tokenId) == address(0)) {
-            revert EvaluatorSBT__NonexistentToken();
-        }
-        return
-            "ipfs://bafkreihjnxm6dw2t5453ythuh27nip6dkl3vlqrbub6gpu2qry4ckahfoa";
+    function adjustReputation(
+        address _evaluator,
+        uint8 _reputation
+    ) external onlyEvaluatorGovernor {
+        _adjustReputation(_evaluator, _reputation);
     }
 
     function _mintEvaluator(address _to, uint8 _reputation) internal {
@@ -120,20 +118,13 @@ contract EvaluatorSBT is ERC721, IEvaluatorSBT {
             revert EvaluatorSBT__InitialReputationCannotBeZero();
         }
 
+        s_tokenId++;
         _mint(_to, s_tokenId);
         s_evaluatorTokenId[_to] = s_tokenId;
-        s_tokenId++;
         s_evaluatorCount++;
         _adjustReputation(_to, _reputation);
 
         emit EvaluatorMinted(_to, s_tokenId, _reputation);
-    }
-
-    function adjustReputation(
-        address _evaluator,
-        uint8 _reputation
-    ) external onlyEvaluatorGovernor {
-        _adjustReputation(_evaluator, _reputation);
     }
 
     function _adjustReputation(address _evaluator, uint8 _reputation) internal {
@@ -166,6 +157,24 @@ contract EvaluatorSBT is ERC721, IEvaluatorSBT {
     }
 
     //----------------- Getter Functions -----------------//
+
+    function tokenURI(
+        uint256 tokenId
+    ) public view virtual override returns (string memory) {
+        if (_ownerOf(tokenId) == address(0)) {
+            revert EvaluatorSBT__NonexistentToken();
+        }
+        return
+            "ipfs://bafkreihjnxm6dw2t5453ythuh27nip6dkl3vlqrbub6gpu2qry4ckahfoa";
+    }
+
+    function getCurrentTokenId() external view returns (uint256) {
+        return s_tokenId;
+    }
+
+    function getEvaluatorGovernor() external view returns (address) {
+        return i_evaluatorGovernor;
+    }
 
     function getReputation(address _evaluator) external view returns (uint8) {
         return s_reputations[_evaluator];
