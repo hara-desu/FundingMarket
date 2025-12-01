@@ -125,7 +125,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     function proposeAddEvaluator(
         address _evaluator,
         uint8 _reputation
-    ) external onlyEvaluator returns (uint256) {
+    ) external onlyEvaluator {
         if (_evaluator == address(0)) {
             revert EvaluatorGovernor__ZeroAddressNotAllowed();
         }
@@ -133,8 +133,8 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             revert EvaluatorGovernor__ReputationOutOfRange();
         }
 
-        uint256 id = s_proposalId++;
-        s_evaluatorProposals[id] = EvaluatorProposal({
+        s_proposalId++;
+        s_evaluatorProposals[s_proposalId] = EvaluatorProposal({
             proposalType: ProposalType.AddEvaluator,
             targetEvaluator: _evaluator,
             newReputation: _reputation,
@@ -145,20 +145,18 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         });
 
         emit AddEvaluatorProposalAdded(
-            id,
+            s_proposalId,
             _evaluator,
             _reputation,
-            s_evaluatorProposals[id].endTime
+            s_evaluatorProposals[s_proposalId].endTime
         );
-
-        return id;
     }
 
     function proposeRemoveEvaluator(
         address _evaluator
     ) external onlyEvaluator targetIsEvaluator(_evaluator) returns (uint256) {
-        uint256 id = s_proposalId++;
-        s_evaluatorProposals[id] = EvaluatorProposal({
+        s_proposalId++;
+        s_evaluatorProposals[s_proposalId] = EvaluatorProposal({
             proposalType: ProposalType.RemoveEvaluator,
             targetEvaluator: _evaluator,
             newReputation: 0,
@@ -169,20 +167,18 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         });
 
         emit RemoveEvaluatorPropoalAdded(
-            id,
+            s_proposalId,
             _evaluator,
-            s_evaluatorProposals[id].endTime
+            s_evaluatorProposals[s_proposalId].endTime
         );
-
-        return id;
     }
 
     function proposeAdjustReputation(
         address _evaluator,
         uint8 _reputation
     ) external onlyEvaluator targetIsEvaluator(_evaluator) returns (uint256) {
-        uint256 id = s_proposalId++;
-        s_evaluatorProposals[id] = EvaluatorProposal({
+        s_proposalId++;
+        s_evaluatorProposals[s_proposalId] = EvaluatorProposal({
             proposalType: ProposalType.AdjustReputation,
             targetEvaluator: _evaluator,
             newReputation: _reputation,
@@ -193,13 +189,11 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         });
 
         emit ReputationAdjustmentProposalAdded(
-            id,
+            s_proposalId,
             _evaluator,
             _reputation,
-            s_evaluatorProposals[id].endTime
+            s_evaluatorProposals[s_proposalId].endTime
         );
-
-        return id;
     }
 
     function proposeImpactEval(
@@ -207,8 +201,8 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         uint256 _projectId,
         uint256 _votingPeriod
     ) external returns (uint256) {
-        uint256 id = s_proposalId++;
-        s_impactProposals[id] = ImpactProposal({
+        s_proposalId++;
+        s_impactProposals[s_proposalId] = ImpactProposal({
             roundId: _roundId,
             projectId: _projectId,
             startTime: block.timestamp,
@@ -219,16 +213,14 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             impactScore: 0,
             totalVotes: 0
         });
-        s_impactProposalIdForProject[_roundId][_projectId] = id;
+        s_impactProposalIdForProject[_roundId][_projectId] = s_proposalId;
 
         emit ImpactEvaluationProposalAdded(
-            id,
+            s_proposalId,
             _roundId,
             _projectId,
-            s_impactProposals[id].endTime
+            s_impactProposals[s_proposalId].endTime
         );
-
-        return id;
     }
 
     function voteEvaluator(
@@ -387,6 +379,10 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     }
 
     //----------------- Getter Functions -----------------//
+
+    function getCurrentProposalId() external view returns (uint256) {
+        return s_proposalId;
+    }
 
     function getEvaluatorProposal(
         uint256 id
