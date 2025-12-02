@@ -71,6 +71,7 @@ contract DeployProjectLocal is Script {
         );
 
         fundingRoundManager.setProjectRegistry(address(projectRegistry));
+        evaluatorGovernor.setProjectRegistry(address(projectRegistry));
 
         evaluatorIncentives = new EvaluatorIncentives(
             address(timelock),

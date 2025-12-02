@@ -17,6 +17,7 @@ error EvaluatorGovernor__VotingOngoing();
 error EvaluatorGovernor__AlreadyExecuted();
 error EvaluatorGovernor__ZeroReputation();
 error EvaluatorGovernor__ProposalNotFinalized();
+error EvaluatorGovernor_ProjectRegistryAlreadySet();
 
 contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     struct EvaluatorProposal {
@@ -48,8 +49,10 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     }
 
     uint256 private s_proposalId = 1;
+    bool private s_projectRegistrySet;
+    address private s_projectRegistry;
     uint8 private MIN_PARTICIPATION_PERCENT = 60;
-    uint256 private constant VOTING_PERIOD = 3 days;
+    uint256 private constant EVALUATOR_VOTING_PERIOD = 3 days;
     uint256 private constant YES_ADD_EVALUATOR = 55;
     uint256 private constant YES_REMOVE_EVALUATOR = 66;
     uint256 private constant YES_ADJUST_REP = 60;
@@ -111,6 +114,14 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         _;
     }
 
+    modifier onlyProjectRegistry() {
+        require(
+            msg.sender == s_projectRegistry,
+            "Only Project Registry can call this function."
+        );
+        _;
+    }
+
     constructor(
         address[] memory _initialEvaluators,
         uint8[] memory _initialReputations
@@ -120,6 +131,15 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             _initialReputations,
             address(this)
         );
+    }
+
+    function setProjectRegistry(address _projectRegistry) external {
+        if (_projectRegistry == address(0))
+            revert EvaluatorGovernor__ZeroAddressNotAllowed();
+        if (s_projectRegistrySet == true)
+            revert EvaluatorGovernor_ProjectRegistryAlreadySet();
+        s_projectRegistrySet = true;
+        s_projectRegistry = _projectRegistry;
     }
 
     function proposeAddEvaluator(
@@ -139,7 +159,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             targetEvaluator: _evaluator,
             newReputation: _reputation,
             startTime: block.timestamp,
-            endTime: block.timestamp + VOTING_PERIOD,
+            endTime: block.timestamp + EVALUATOR_VOTING_PERIOD,
             yesVotes: 0,
             noVotes: 0
         });
@@ -161,7 +181,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             targetEvaluator: _evaluator,
             newReputation: 0,
             startTime: block.timestamp,
-            endTime: block.timestamp + VOTING_PERIOD,
+            endTime: block.timestamp + EVALUATOR_VOTING_PERIOD,
             yesVotes: 0,
             noVotes: 0
         });
@@ -183,7 +203,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             targetEvaluator: _evaluator,
             newReputation: _reputation,
             startTime: block.timestamp,
-            endTime: block.timestamp + VOTING_PERIOD,
+            endTime: block.timestamp + EVALUATOR_VOTING_PERIOD,
             yesVotes: 0,
             noVotes: 0
         });
@@ -199,14 +219,14 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     function proposeImpactEval(
         uint256 _roundId,
         uint256 _projectId,
-        uint256 _votingPeriod
-    ) external returns (uint256) {
+        uint256 _endsAt
+    ) external onlyProjectRegistry returns (uint256) {
         s_proposalId++;
         s_impactProposals[s_proposalId] = ImpactProposal({
             roundId: _roundId,
             projectId: _projectId,
             startTime: block.timestamp,
-            endTime: block.timestamp + _votingPeriod,
+            endTime: _endsAt,
             finalized: false,
             sumWeighted: 0,
             sumWeights: 0,
@@ -280,7 +300,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
             revert EvaluatorGovernor__ZeroReputation();
         }
 
-        proposal.sumWeighted += _score * reputation;
+        proposal.sumWeighted += uint256(_score) * uint256(reputation);
         proposal.sumWeights += reputation;
         proposal.totalVotes += 1;
         s_hasVoted[_proposalId][msg.sender] = true;
@@ -344,6 +364,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         emit EvaluatorProposalExecuted(_proposalId);
     }
 
+    // Call inside endCurrentRound of FundingRoundManager?
     function executeImpactProposal(uint256 _proposalId) external {
         ImpactProposal storage proposal = s_impactProposals[_proposalId];
 
@@ -429,8 +450,8 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         return MIN_PARTICIPATION_PERCENT;
     }
 
-    function getVotingPeriod() external pure returns (uint256) {
-        return VOTING_PERIOD;
+    function getEvaluatorVotingPeriod() external pure returns (uint256) {
+        return EVALUATOR_VOTING_PERIOD;
     }
 
     function getYesThresholds()

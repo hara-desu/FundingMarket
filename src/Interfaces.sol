@@ -8,6 +8,20 @@ interface IRoundManager {
     function getCurrentRoundId() external view returns (uint256);
 
     function hasRoundEnded(uint256 roundId) external view returns (bool);
+
+    function getRound(
+        uint256 _roundId
+    )
+        external
+        view
+        returns (
+            uint256 roundBudget,
+            uint256 roundSpent,
+            uint256 roundRemaining,
+            uint256 startsAt,
+            uint256 endsAt,
+            bool ongoing
+        );
 }
 
 interface IProjectRegistry {
@@ -32,6 +46,12 @@ interface IEvaluatorGovernor {
         uint256 _roundId,
         uint256 _projectId
     ) external view returns (uint256);
+
+    function proposeImpactEval(
+        uint256 _roundId,
+        uint256 _projectId,
+        uint256 _votingPeriod
+    ) external returns (uint256);
 }
 
 interface IFundingMarket {

@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.18;
 
-import {IEvaluatorSBT, IRoundManager, IProjectRegistry} from "@src/Interfaces.sol";
+import {IEvaluatorSBT, IRoundManager, IProjectRegistry, IEvaluatorGovernor} from "@src/Interfaces.sol";
 import {FundingMarket} from "@src/market/FundingMarket.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -28,7 +28,7 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
 
     IRoundManager private immutable i_roundManager;
     IEvaluatorSBT private immutable i_evaluatorSbt;
-    address private immutable i_evaluatorGovernor;
+    IEvaluatorGovernor private immutable i_evaluatorGovernor;
     address private immutable i_timelock;
 
     uint256 private constant PROJECT_DEPOSIT = 0.05 ether;
@@ -84,7 +84,7 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
         }
         i_roundManager = IRoundManager(_roundManager);
         i_evaluatorSbt = IEvaluatorSBT(_evaluatorSbt);
-        i_evaluatorGovernor = _evaluatorGovernor;
+        i_evaluatorGovernor = IEvaluatorGovernor(_evaluatorGovernor);
         i_timelock = _timelock;
     }
 
@@ -118,6 +118,8 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
         s_projectsByRound[roundId].push(s_projectId);
 
         createMarket(s_projectId, roundId);
+        (, , , , uint256 endsAt, ) = i_roundManager.getRound(roundId);
+        i_evaluatorGovernor.proposeImpactEval(roundId, s_projectId, endsAt);
 
         emit ProjectRegisteredAndMarketCreated(roundId, s_projectId);
     }
@@ -169,7 +171,7 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
             new FundingMarket(
                 _roundId,
                 _projectId,
-                i_evaluatorGovernor,
+                address(i_evaluatorGovernor),
                 i_timelock,
                 address(i_evaluatorSbt)
             )
