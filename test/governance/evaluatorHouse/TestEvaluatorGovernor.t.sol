@@ -6,7 +6,7 @@ import "forge-std/console.sol";
 import "@test/utils/BaseTest.t.sol";
 import {EvaluatorGovernor} from "@src/governance/evaluatorHouse/EvaluatorGovernor.sol";
 
-contract TestEvaluatorSBT is BaseTest {
+contract TestGovernor is BaseTest {
     uint256 public constant EVALUATOR_VOTING_PERIOD = 3 days;
 
     //--------------------- proposeAddEvaluator ---------------------//
@@ -154,7 +154,7 @@ contract TestEvaluatorSBT is BaseTest {
         evaluatorGovernor.proposeAdjustReputation(evaluator1, newReputation);
     }
 
-    //--------------------- setRoundManager ---------------------//
+    //--------------------- setProjectRegistry ---------------------//
 
     function testSetProjectRegistryRevertsIfZeroAddressGiven() external {
         vm.expectRevert("EvaluatorGovernor__ZeroAddressNotAllowed()");
@@ -163,9 +163,23 @@ contract TestEvaluatorSBT is BaseTest {
 
     function testSetProjectRegistryRevertsIfCalledAfterDeployment() external {
         address newProjectRegistry = makeAddr("New Project Registry");
-        vm.expectRevert("EvaluatorGovernor_ProjectRegistryAlreadySet()");
+        vm.expectRevert("EvaluatorGovernor__ProjectRegistryAlreadySet()");
 
         evaluatorGovernor.setProjectRegistry(newProjectRegistry);
+    }
+
+    //--------------------- setRoundManager ---------------------//
+
+    function testSetRoundManagerRevertsIfZeroAddressGiven() external {
+        vm.expectRevert("EvaluatorGovernor__ZeroAddressNotAllowed()");
+        evaluatorGovernor.setRoundManager(address(0));
+    }
+
+    function testSetRoundManagerRevertsIfCalledAfterDeployment() external {
+        address newRoundManager = makeAddr("New Round Manager");
+        vm.expectRevert("EvaluatorGovernor__RoundManagerAlreadySet()");
+
+        evaluatorGovernor.setRoundManager(newRoundManager);
     }
 
     //--------------------- proposeImpactEval ---------------------//
@@ -206,7 +220,7 @@ contract TestEvaluatorSBT is BaseTest {
             currentProposalId + 1,
             roundId,
             projectId,
-            block.timestamp + votingPeriod
+            block.timestamp + votingPeriod - 1
         );
 
         vm.prank(address(projectRegistry));
@@ -406,5 +420,359 @@ contract TestEvaluatorSBT is BaseTest {
         assertEq(proposal.sumWeights, reputation);
     }
 
-    function testVoteProjectImpactEmitsEvent() external {}
+    function testVoteProjectImpactEmitsEvent() external {
+        uint256 roundId = 20;
+        uint256 projectId = 199;
+        uint256 votingPeriod = 2000;
+        uint8 projectImpact = 96;
+        uint8 reputation = evaluatorSbtContract.getReputation(evaluator1);
+
+        vm.prank(address(projectRegistry));
+        evaluatorGovernor.proposeImpactEval(roundId, projectId, votingPeriod);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.expectEmit(address(evaluatorGovernor));
+        emit EvaluatorGovernor.VotedProjectImpact(
+            currentProposalId,
+            evaluator1,
+            projectImpact
+        );
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, projectImpact);
+    }
+
+    //--------------------- executeEvaluatorProposal ---------------------//
+
+    function testExecuteEvaluatorProposalRevertsIfPrposalDoesntExist()
+        external
+    {
+        uint proposalId = 256;
+
+        vm.expectRevert("EvaluatorGovernor__ProposalDoesNotExist()");
+        evaluatorGovernor.executeEvaluatorProposal(proposalId);
+    }
+
+    function testExecuteEvaluatorProposalRevertsIfVotingOngoing() external {
+        uint8 newReputation = 10;
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.proposeAdjustReputation(evaluator2, newReputation);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.expectRevert("EvaluatorGovernor__VotingOngoing()");
+        evaluatorGovernor.executeEvaluatorProposal(currentProposalId);
+    }
+
+    function testExecuteEvaluatorProposalRevertsIfNoVotes() external {
+        uint8 newReputation = 10;
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.proposeAdjustReputation(evaluator2, newReputation);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.warp(block.timestamp + EVALUATOR_VOTING_PERIOD + 1);
+
+        vm.expectRevert("EvaluatorGovernor__NoVotes()");
+        evaluatorGovernor.executeEvaluatorProposal(currentProposalId);
+    }
+
+    function testExecuteEvaluatorProposalRevertsIfQuorumNotMet() external {
+        uint8 newReputation = 10;
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.proposeAdjustReputation(evaluator2, newReputation);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.warp(block.timestamp + EVALUATOR_VOTING_PERIOD + 1);
+
+        vm.expectRevert("EvaluatorGovernor__QuorumNotMet()");
+        evaluatorGovernor.executeEvaluatorProposal(currentProposalId);
+    }
+
+    function testExecuteEvaluatorProposalAddsNewEvaluator() external {
+        address newEvaluator = makeAddr("New evaluator");
+        uint8 newReputation = 80;
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.proposeAddEvaluator(newEvaluator, newReputation);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator2);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator3);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 0);
+
+        vm.prank(evaluator4);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator5);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.warp(block.timestamp + EVALUATOR_VOTING_PERIOD + 1);
+
+        evaluatorGovernor.executeEvaluatorProposal(currentProposalId);
+
+        bool isEvaluator = evaluatorSbtContract.isEvaluator(newEvaluator);
+        assertEq(isEvaluator, true);
+    }
+
+    function testExecuteEvaluatorProposalRemovesEvaluator() external {
+        vm.prank(evaluator1);
+        evaluatorGovernor.proposeRemoveEvaluator(evaluator2);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator2);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 0);
+
+        vm.prank(evaluator3);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator4);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator5);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.warp(block.timestamp + EVALUATOR_VOTING_PERIOD + 1);
+
+        evaluatorGovernor.executeEvaluatorProposal(currentProposalId);
+
+        bool isEvaluator = evaluatorSbtContract.isEvaluator(evaluator2);
+        assertEq(isEvaluator, false);
+    }
+
+    function testExecuteEvaluatorProposalAdjustsReputation() external {
+        uint8 newReputation = 99;
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.proposeAdjustReputation(evaluator2, newReputation);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator2);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator3);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator4);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 0);
+
+        vm.prank(evaluator5);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.warp(block.timestamp + EVALUATOR_VOTING_PERIOD + 1);
+
+        evaluatorGovernor.executeEvaluatorProposal(currentProposalId);
+
+        uint8 adjustedReputation = evaluatorSbtContract.getReputation(
+            evaluator2
+        );
+        assertEq(newReputation, adjustedReputation);
+    }
+
+    function testExecuteEvaluatorProposalEmitsEvent() external {
+        uint8 newReputation = 99;
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.proposeAdjustReputation(evaluator2, newReputation);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator2);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator3);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.prank(evaluator4);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 0);
+
+        vm.prank(evaluator5);
+        evaluatorGovernor.voteEvaluator(currentProposalId, 1);
+
+        vm.warp(block.timestamp + EVALUATOR_VOTING_PERIOD + 1);
+
+        vm.expectEmit(address(evaluatorGovernor));
+        emit EvaluatorGovernor.EvaluatorProposalExecuted(currentProposalId);
+        evaluatorGovernor.executeEvaluatorProposal(currentProposalId);
+    }
+
+    //--------------------- executeImpactProposal ---------------------//
+
+    function testExecuteImpactProposalRevertsIfNotRoundManager() external {
+        uint256 roundId = 2;
+        uint256 projectId = 12;
+        uint256 endsAt = 2000;
+
+        vm.prank(address(projectRegistry));
+        evaluatorGovernor.proposeImpactEval(roundId, projectId, endsAt);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.expectRevert("Only Round Manager can call this function.");
+        evaluatorGovernor.executeImpactProposal(currentProposalId);
+    }
+
+    function testExecuteImpactProposalRevertsIfProposalDoesntExist() external {
+        uint256 proposalId = 888;
+
+        vm.expectRevert("EvaluatorGovernor__ProposalDoesNotExist()");
+        vm.prank(address(fundingRoundManager));
+        evaluatorGovernor.executeImpactProposal(proposalId);
+    }
+
+    function testExecuteImpactProposalRevertsIfVotingOngoing() external {
+        uint256 roundId = 2;
+        uint256 projectId = 12;
+        uint256 endsAt = 2000;
+
+        vm.prank(address(projectRegistry));
+        evaluatorGovernor.proposeImpactEval(roundId, projectId, endsAt);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.expectRevert("EvaluatorGovernor__VotingOngoing()");
+        vm.prank(address(fundingRoundManager));
+        evaluatorGovernor.executeImpactProposal(currentProposalId);
+    }
+
+    function testExecutempactProposalRevertsIfAlreadyFinalized() external {
+        uint256 roundId = 2;
+        uint256 projectId = 12;
+        uint256 endsAt = 2000;
+        uint8 impact1 = 70;
+        uint8 impact2 = 50;
+        uint8 impact3 = 34;
+        uint8 impact4 = 98;
+        uint8 impact5 = 17;
+
+        vm.prank(address(projectRegistry));
+        evaluatorGovernor.proposeImpactEval(roundId, projectId, endsAt);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact1);
+
+        vm.prank(evaluator2);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact2);
+
+        vm.prank(evaluator3);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact3);
+
+        vm.prank(evaluator4);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact4);
+
+        vm.prank(evaluator5);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact5);
+
+        vm.warp(block.timestamp + endsAt + 1);
+
+        vm.prank(address(fundingRoundManager));
+        evaluatorGovernor.executeImpactProposal(currentProposalId);
+
+        vm.expectRevert("EvaluatorGovernor__AlreadyExecuted()");
+        vm.prank(address(fundingRoundManager));
+        evaluatorGovernor.executeImpactProposal(currentProposalId);
+    }
+
+    function testExecuteImpactProposalRevertsIfNoVotes() external {
+        uint256 roundId = 2;
+        uint256 projectId = 12;
+        uint256 endsAt = 2000;
+
+        vm.prank(address(projectRegistry));
+        evaluatorGovernor.proposeImpactEval(roundId, projectId, endsAt);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.warp(block.timestamp + endsAt + 1);
+
+        vm.expectRevert("EvaluatorGovernor__NoVotes()");
+        vm.prank(address(fundingRoundManager));
+        evaluatorGovernor.executeImpactProposal(currentProposalId);
+    }
+
+    function testExecuteImpactProposalRevertsIfQuorumNotMet() external {
+        uint256 roundId = 2;
+        uint256 projectId = 12;
+        uint256 endsAt = 2000;
+        uint8 impact = 50;
+
+        vm.prank(address(projectRegistry));
+        evaluatorGovernor.proposeImpactEval(roundId, projectId, endsAt);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.prank(evaluator5);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact);
+
+        vm.warp(block.timestamp + endsAt + 1);
+
+        vm.expectRevert("EvaluatorGovernor__QuorumNotMet()");
+        vm.prank(address(fundingRoundManager));
+        evaluatorGovernor.executeImpactProposal(currentProposalId);
+    }
+
+    function testExecuteImpactProposalEmitsEvent() external {
+        uint256 roundId = 2;
+        uint256 projectId = 12;
+        uint256 endsAt = 2000;
+        uint8 impact1 = 70;
+        uint8 impact2 = 50;
+        uint8 impact3 = 34;
+        uint8 impact4 = 98;
+        uint8 impact5 = 17;
+
+        vm.prank(address(projectRegistry));
+        evaluatorGovernor.proposeImpactEval(roundId, projectId, endsAt);
+
+        uint256 currentProposalId = evaluatorGovernor.getCurrentProposalId();
+
+        vm.prank(evaluator1);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact1);
+
+        vm.prank(evaluator2);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact2);
+
+        vm.prank(evaluator3);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact3);
+
+        vm.prank(evaluator4);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact4);
+
+        vm.prank(evaluator5);
+        evaluatorGovernor.voteProjectImpact(currentProposalId, impact5);
+
+        vm.warp(block.timestamp + endsAt + 1);
+
+        vm.expectEmit(address(evaluatorGovernor));
+        emit EvaluatorGovernor.ImpactProposalExecuted(currentProposalId);
+        vm.prank(address(fundingRoundManager));
+        evaluatorGovernor.executeImpactProposal(currentProposalId);
+    }
 }

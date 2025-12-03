@@ -77,7 +77,11 @@ contract BaseTest is Test {
         );
         address evaluatorSbt = evaluatorGovernor.getEvaluatorSbt();
         evaluatorSbtContract = evaluatorGovernor.getEvaluatorSbtContract();
+
         timelock = new FunDaoTimelock(minDelay, proposers, executors);
+        vm.deal(address(timelock), 100 ether);
+        vm.deal(address(fundingRoundManager), 1 ether);
+
         governanceToken = new FunDAOToken(
             address(timelock),
             IEvaluatorSBT(evaluatorSbt)
@@ -109,6 +113,7 @@ contract BaseTest is Test {
 
         fundingRoundManager.setProjectRegistry(address(projectRegistry));
         evaluatorGovernor.setProjectRegistry(address(projectRegistry));
+        evaluatorGovernor.setRoundManager(address(fundingRoundManager));
 
         evaluatorIncentives = new EvaluatorIncentives(
             address(timelock),

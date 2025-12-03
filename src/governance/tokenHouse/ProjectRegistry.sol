@@ -90,7 +90,7 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
 
     function registerProject(
         string calldata _metadataURI
-    ) external payable restrictedForEvaluator {
+    ) external payable restrictedForEvaluator returns (uint256) {
         if (bytes(_metadataURI).length == 0) {
             revert ProjectRegistry__InvalidMetadataUri();
         }
@@ -122,6 +122,7 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
         i_evaluatorGovernor.proposeImpactEval(roundId, s_projectId, endsAt);
 
         emit ProjectRegisteredAndMarketCreated(roundId, s_projectId);
+        return s_projectId;
     }
 
     function withdrawAllDepositForRound(

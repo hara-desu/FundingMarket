@@ -17,7 +17,8 @@ error EvaluatorGovernor__VotingOngoing();
 error EvaluatorGovernor__AlreadyExecuted();
 error EvaluatorGovernor__ZeroReputation();
 error EvaluatorGovernor__ProposalNotFinalized();
-error EvaluatorGovernor_ProjectRegistryAlreadySet();
+error EvaluatorGovernor__ProjectRegistryAlreadySet();
+error EvaluatorGovernor__RoundManagerAlreadySet();
 
 contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     struct EvaluatorProposal {
@@ -51,6 +52,8 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     uint256 private s_proposalId = 1;
     bool private s_projectRegistrySet;
     address private s_projectRegistry;
+    bool private s_roundManagerSet;
+    address private s_roundManager;
     uint8 private MIN_PARTICIPATION_PERCENT = 60;
     uint256 private constant EVALUATOR_VOTING_PERIOD = 3 days;
     uint256 private constant YES_ADD_EVALUATOR = 55;
@@ -94,7 +97,11 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
     );
 
     event VotedOnEvaluator(uint256 indexed proposalId, uint8 indexed vote);
-    event VotedProjectImpact(uint256 indexed proposalId, uint8 indexed score);
+    event VotedProjectImpact(
+        uint256 indexed proposalId,
+        address indexed evaluator,
+        uint8 score
+    );
     event EvaluatorProposalExecuted(uint256 indexed proposalId);
     event ImpactProposalExecuted(uint256 indexed proposalId);
 
@@ -122,6 +129,14 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         _;
     }
 
+    modifier onlyRoundManager() {
+        require(
+            msg.sender == s_roundManager,
+            "Only Round Manager can call this function."
+        );
+        _;
+    }
+
     constructor(
         address[] memory _initialEvaluators,
         uint8[] memory _initialReputations
@@ -137,9 +152,18 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         if (_projectRegistry == address(0))
             revert EvaluatorGovernor__ZeroAddressNotAllowed();
         if (s_projectRegistrySet == true)
-            revert EvaluatorGovernor_ProjectRegistryAlreadySet();
+            revert EvaluatorGovernor__ProjectRegistryAlreadySet();
         s_projectRegistrySet = true;
         s_projectRegistry = _projectRegistry;
+    }
+
+    function setRoundManager(address _roundManager) external {
+        if (_roundManager == address(0))
+            revert EvaluatorGovernor__ZeroAddressNotAllowed();
+        if (s_roundManagerSet == true)
+            revert EvaluatorGovernor__RoundManagerAlreadySet();
+        s_roundManagerSet = true;
+        s_roundManager = _roundManager;
     }
 
     function proposeAddEvaluator(
@@ -305,7 +329,7 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         proposal.totalVotes += 1;
         s_hasVoted[_proposalId][msg.sender] = true;
 
-        emit VotedProjectImpact(_proposalId, _score);
+        emit VotedProjectImpact(_proposalId, msg.sender, _score);
     }
 
     function executeEvaluatorProposal(uint256 _proposalId) external {
@@ -364,8 +388,9 @@ contract EvaluatorGovernor is IEvaluatorGovernor, ReentrancyGuard {
         emit EvaluatorProposalExecuted(_proposalId);
     }
 
-    // Call inside endCurrentRound of FundingRoundManager?
-    function executeImpactProposal(uint256 _proposalId) external {
+    function executeImpactProposal(
+        uint256 _proposalId
+    ) external onlyRoundManager {
         ImpactProposal storage proposal = s_impactProposals[_proposalId];
 
         if (s_impactProposals[_proposalId].roundId == 0) {

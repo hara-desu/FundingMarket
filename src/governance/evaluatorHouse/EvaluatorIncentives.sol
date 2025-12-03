@@ -128,13 +128,13 @@ contract EvaluatorIncentives is ReentrancyGuard {
 
         if (!s_isFunded[_roundId]) revert EvaluatorIncentives__RoundNotFunded();
 
+        if (s_countRegistered[_roundId] == 0) {
+            revert EvaluatorIncentives__NobodyHasRegisteredForPayout();
+        }
+
         bool registered = s_registeredForPayout[_roundId][msg.sender];
         if (!registered) {
             revert EvaluatorIncentives__DidNotRegisterForPayout();
-        }
-
-        if (s_countRegistered[_roundId] == 0) {
-            revert EvaluatorIncentives__NobodyHasRegisteredForPayout();
         }
 
         uint256 payout = s_roundBudget[_roundId] / s_countRegistered[_roundId];

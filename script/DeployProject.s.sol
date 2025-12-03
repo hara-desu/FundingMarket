@@ -72,6 +72,7 @@ contract DeployProjectLocal is Script {
 
         fundingRoundManager.setProjectRegistry(address(projectRegistry));
         evaluatorGovernor.setProjectRegistry(address(projectRegistry));
+        evaluatorGovernor.setRoundManager(address(fundingRoundManager));
 
         evaluatorIncentives = new EvaluatorIncentives(
             address(timelock),
@@ -145,6 +146,8 @@ contract DeployForestOchainSepolia is Script {
         );
 
         fundingRoundManager.setProjectRegistry(address(projectRegistry));
+        evaluatorGovernor.setProjectRegistry(address(projectRegistry));
+        evaluatorGovernor.setRoundManager(address(fundingRoundManager));
 
         evaluatorIncentives = new EvaluatorIncentives(
             address(timelock),

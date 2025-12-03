@@ -6,16 +6,16 @@ import {IProjectRegistry, IEvaluatorGovernor, IRoundManager, IFundingMarket} fro
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 error FundingRoundManager__BudgetCannotBeZero();
-error FundingRoundManager_SendTheRightBudgetAmount();
+error FundingRoundManager__SendTheRightBudgetAmount();
 error FundingRoundManager__AnotherRoundOngoing();
 error FundingRoundManager__NoOngoingRounds();
 error FundingRoundManager__RoundHasNotEnded();
 error FundingRoundManager__TranferFailed();
-error FundingRoundManager_NothingToPay();
+error FundingRoundManager__NothingToPay();
 error FundingRoundManager__AddressCannotBeZero();
 error FundingRoundManager__EndTimeMustBeInTheFuture();
 error FundingRoundManager__InvalidRoundId();
-error FundingRoundManager_ProjectRegistryAlreadySet();
+error FundingRoundManager__ProjectRegistryAlreadySet();
 
 contract FundingRoundManager is IRoundManager, ReentrancyGuard {
     struct Round {
@@ -75,7 +75,7 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
         if (_registry == address(0))
             revert FundingRoundManager__AddressCannotBeZero();
         if (s_projectRegistrySet == true)
-            revert FundingRoundManager_ProjectRegistryAlreadySet();
+            revert FundingRoundManager__ProjectRegistryAlreadySet();
         s_projectRegistrySet = true;
         s_projectRegistry = IProjectRegistry(_registry);
     }
@@ -91,7 +91,7 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
             revert FundingRoundManager__BudgetCannotBeZero();
         }
         if (_roundBudget != msg.value) {
-            revert FundingRoundManager_SendTheRightBudgetAmount();
+            revert FundingRoundManager__SendTheRightBudgetAmount();
         }
         if (s_roundOngoing) {
             revert FundingRoundManager__AnotherRoundOngoing();
@@ -147,6 +147,11 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
 
         for (uint256 i = 0; i < projectIds.length; i++) {
             uint256 projectId = projectIds[i];
+
+            uint256 impactProposalId = i_evaluatorGovernor
+                .getImpactProposalIdForProject(roundId, projectId);
+            i_evaluatorGovernor.executeImpactProposal(impactProposalId);
+
             uint256 evaluatorScore = i_evaluatorGovernor
                 .getImpactScoreForProject(roundId, projectId);
             address fundingMarketAddr = s_projectRegistry.getMarketForProject(
@@ -183,7 +188,7 @@ contract FundingRoundManager is IRoundManager, ReentrancyGuard {
     function withdrawAllPayments() external nonReentrant {
         uint256 payout = s_payouts[msg.sender];
         if (payout == 0) {
-            revert FundingRoundManager_NothingToPay();
+            revert FundingRoundManager__NothingToPay();
         }
         s_payouts[msg.sender] = 0;
         (bool success, ) = payable(msg.sender).call{value: payout}("");

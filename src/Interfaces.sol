@@ -52,6 +52,13 @@ interface IEvaluatorGovernor {
         uint256 _projectId,
         uint256 _votingPeriod
     ) external returns (uint256);
+
+    function executeImpactProposal(uint256 _proposalId) external;
+
+    function getImpactProposalIdForProject(
+        uint256 roundId,
+        uint256 projectId
+    ) external view returns (uint256);
 }
 
 interface IFundingMarket {
