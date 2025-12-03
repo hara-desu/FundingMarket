@@ -1,6 +1,6 @@
 # **Funding Market Protocol – README**
 
-A decentralized funding protocol combining **prediction markets**, **evaluator governance**, and **quadratic-style scoring** to allocate capital to public-good projects in discrete funding rounds.
+A decentralized funding protocol combining **prediction markets** and **evaluator governance** to allocate capital to public-good projects in discrete funding rounds.
 
 FunDAO coordinates three major subsystems:
 
@@ -146,10 +146,3 @@ Evaluators receive equal payments for participation.
 3. After round end, they withdraw:
 
 payment = roundBudget / registeredEvaluators
-
-## 🔒 **Security Notes**
-
-- All ETH-sending methods use `nonReentrant`
-- Strict `receive()`/`fallback()` protections
-- Evaluators cannot hold FUND to avoid governance capture
-- No upgradability to reduce governance-key risk
