@@ -101,10 +101,6 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
         if (roundId == 0) {
             revert ProjectRegistry__InvalidRoundId();
         }
-        if (i_roundManager.hasRoundEnded(roundId)) {
-            revert ProjectRegistry__RoundEnded();
-        }
-
         s_projectId++;
         s_projects[s_projectId] = Project({
             projectId: s_projectId,
@@ -174,7 +170,8 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
                 _projectId,
                 address(i_evaluatorGovernor),
                 i_timelock,
-                address(i_evaluatorSbt)
+                address(i_evaluatorSbt),
+                address(i_roundManager)
             )
         );
 

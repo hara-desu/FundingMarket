@@ -6,6 +6,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {FundingMarketToken} from "@src/tokens/FundingMarketToken.sol";
 import {IEvaluatorSBT, IEvaluatorGovernor, IFundingMarket} from "@src/Interfaces.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IRoundManager} from "@src/governance/tokenHouse/FundingRoundManager.sol";
 
 error FundingMarket__MustProvideETHForInitialLiquidity();
 error FundingMarket__CannotProvideZeroAddress();
@@ -22,13 +23,12 @@ error FundingMarket__InsufficientAllowance(
     uint256 allowance
 );
 error FundingMarket__InsufficientLiquidity();
-error FundingMarket__onlyEvaluatorGovernorCanReport();
 error FundingMarket__AlreadyFinalized();
-error FundingMarket__NotFinalized();
 error FundingMarket__InvalidScore();
 error FundingMarket__InsufficientLongBalance();
 error FundingMarket__InsufficientShortBalance();
 error FundingMarket__MustSendExactETHAmount();
+error FundingMarket__RoundAlreadyEnded();
 
 contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
     enum Side {
@@ -39,6 +39,8 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
     address private immutable i_evaluatorGovernor;
     IEvaluatorSBT private immutable i_evaluatorSbt;
     IEvaluatorGovernor private immutable i_evaluatorGovernorContract;
+    IRoundManager private immutable i_roundManager;
+
     FundingMarketToken private immutable i_longToken;
     FundingMarketToken private immutable i_shortToken;
 
@@ -70,12 +72,15 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
         uint256 _roundId,
         address _evaluatorGovernor,
         address _timelock,
-        address _evaluatorSbt
+        address _evaluatorSbt,
+        address _roundManager
     ) payable Ownable(_timelock) {
-        if (_evaluatorGovernor == address(0)) {
-            revert FundingMarket__CannotProvideZeroAddress();
-        }
-        if (_timelock == address(0)) {
+        if (
+            _evaluatorGovernor == address(0) ||
+            _timelock == address(0) ||
+            _evaluatorSbt == address(0) ||
+            _roundManager == address(0)
+        ) {
             revert FundingMarket__CannotProvideZeroAddress();
         }
 
@@ -84,6 +89,7 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
         i_evaluatorGovernor = _evaluatorGovernor;
         i_evaluatorSbt = IEvaluatorSBT(_evaluatorSbt);
         i_evaluatorGovernorContract = IEvaluatorGovernor(_evaluatorGovernor);
+        i_roundManager = IRoundManager(_roundManager);
 
         i_longToken = new FundingMarketToken(
             "Impact LONG",
@@ -159,6 +165,10 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
     ) external payable amountGreaterThanZero(_amountTokenToBuy) {
         if (s_isFinalized) revert FundingMarket__AlreadyFinalized();
 
+        if (i_roundManager.hasRoundEnded(i_roundId)) {
+            revert FundingMarket__RoundAlreadyEnded();
+        }
+
         uint256 ethNeeded = getBuyPriceInEth(_side, _amountTokenToBuy);
         if (msg.value != ethNeeded) {
             revert FundingMarket__MustSendExactETHAmount();
@@ -190,6 +200,10 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
         uint256 _tradingAmount
     ) external amountGreaterThanZero(_tradingAmount) nonReentrant {
         if (s_isFinalized) revert FundingMarket__AlreadyFinalized();
+
+        if (i_roundManager.hasRoundEnded(i_roundId)) {
+            revert FundingMarket__RoundAlreadyEnded();
+        }
 
         FundingMarketToken token = _side == Side.LONG
             ? i_longToken
