@@ -29,6 +29,7 @@ error FundingMarket__InsufficientLongBalance();
 error FundingMarket__InsufficientShortBalance();
 error FundingMarket__MustSendExactETHAmount();
 error FundingMarket__RoundAlreadyEnded();
+error FundingMarket__InsufficientPayoutLiquidity();
 
 contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
     enum Side {
@@ -49,7 +50,6 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
     uint256 private immutable i_projectId;
     uint256 private immutable i_roundId;
     uint256 private s_ethCollateral;
-    uint256 private s_lpTradingRevenue;
     bool private s_isFinalized;
     uint8 private s_finalScore; // 0–100
 
@@ -117,7 +117,6 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
     }
 
     function addLiquidity() external payable onlyOwner {
-        // msg.value is the DAO capital for this market
         s_ethCollateral += msg.value;
 
         uint256 tokensToMint = (msg.value * PRECISION) / INITIAL_TOKEN_VALUE;
@@ -144,6 +143,10 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
                 uint8(Side.SHORT),
                 tokensToBurn
             );
+        }
+
+        if (_ethToWithdraw > s_ethCollateral) {
+            revert FundingMarket__InsufficientPayoutLiquidity();
         }
 
         s_ethCollateral -= _ethToWithdraw;
@@ -178,14 +181,7 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
             ? i_longToken
             : i_shortToken;
 
-        if (_amountTokenToBuy > token.balanceOf(address(this))) {
-            revert FundingMarket__InsufficientTokenReserve(
-                uint8(_side),
-                _amountTokenToBuy
-            );
-        }
-
-        s_lpTradingRevenue += msg.value;
+        s_ethCollateral += msg.value;
 
         bool success = token.transfer(msg.sender, _amountTokenToBuy);
         if (!success) {
@@ -226,7 +222,7 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
 
         uint256 ethToReceive = getSellPriceInEth(_side, _tradingAmount);
 
-        s_lpTradingRevenue -= ethToReceive;
+        s_ethCollateral -= ethToReceive;
 
         bool success = token.transferFrom(
             msg.sender,
@@ -256,9 +252,11 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
             revert FundingMarket__InsufficientLongBalance();
         }
 
-        // payoffPerToken = (finalScore / 100) * INITIAL_TOKEN_VALUE / PRECISION
-        uint256 payout = (_amount * INITIAL_TOKEN_VALUE * s_finalScore) /
-            (100 * PRECISION);
+        uint256 payout = (_amount * INITIAL_TOKEN_VALUE * s_finalScore) / 100;
+
+        if (payout > s_ethCollateral) {
+            revert FundingMarket__InsufficientPayoutLiquidity();
+        }
 
         s_ethCollateral -= payout;
 
@@ -283,7 +281,11 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
 
         uint256 payout = (_amount *
             INITIAL_TOKEN_VALUE *
-            (100 - s_finalScore)) / (100 * PRECISION);
+            (100 - s_finalScore)) / 100;
+
+        if (payout > s_ethCollateral) {
+            revert FundingMarket__InsufficientPayoutLiquidity();
+        }
 
         s_ethCollateral -= payout;
 
@@ -432,10 +434,6 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
 
     function getEthCollateral() external view returns (uint256) {
         return s_ethCollateral;
-    }
-
-    function getLpTradingRevenue() external view returns (uint256) {
-        return s_lpTradingRevenue;
     }
 
     function isFinalized() external view returns (bool) {
