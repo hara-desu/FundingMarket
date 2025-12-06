@@ -10,6 +10,8 @@ import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Vo
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
+error FunDAOToken__EvaluatorsCannotReceiveDelegation();
+
 contract FunDAOToken is ERC20, ERC20Permit, ERC20Votes, Ownable {
     error FunDAOToken__EvaluatorCannotReceiveTokens();
 
@@ -55,6 +57,29 @@ contract FunDAOToken is ERC20, ERC20Permit, ERC20Votes, Ownable {
         }
 
         super._update(from, to, value);
+    }
+
+    function delegate(address delegatee) public override {
+        if (i_evaluatorSbt.isEvaluator(delegatee)) {
+            revert FunDAOToken__EvaluatorsCannotReceiveDelegation();
+        }
+
+        super.delegate(delegatee);
+    }
+
+    function delegateBySig(
+        address delegatee,
+        uint256 nonce,
+        uint256 expiry,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public override {
+        if (i_evaluatorSbt.isEvaluator(delegatee)) {
+            revert FunDAOToken__EvaluatorsCannotReceiveDelegation();
+        }
+
+        super.delegateBySig(delegatee, nonce, expiry, v, r, s);
     }
 
     function nonces(
