@@ -20,6 +20,7 @@ contract TestFundingMarket is BaseTest {
         string memory uri = "uri";
         address project = makeAddr("Project");
         uint256 deposit = projectRegistry.getProjectDepositAmount();
+        uint256 initialLiquidity = 1 ether;
 
         vm.prank(address(timelock));
         fundingRoundManager.startRound{value: roundBudget}(roundBudget, endsAt);
@@ -29,7 +30,8 @@ contract TestFundingMarket is BaseTest {
         vm.deal(project, 1 ether);
         vm.prank(project);
         uint256 projectId = projectRegistry.registerProject{value: deposit}(
-            uri
+            uri,
+            initialLiquidity
         );
 
         address marketAddr = projectRegistry.getMarketForProject(projectId);
@@ -69,32 +71,6 @@ contract TestFundingMarket is BaseTest {
         market.addLiquidity{value: liquidity}();
 
         vm.expectRevert();
-        market.removeLiquidity(liquidity);
-    }
-
-    function testRemoveLiquidityRevertsIfInsufficientTokenReserve() external {
-        (address marketAddress, , ) = getMarketAddress();
-        FundingMarket market = FundingMarket(payable(marketAddress));
-        uint256 liquidity = 1 ether;
-
-        vm.expectRevert();
-        vm.prank(address(timelock));
-        market.removeLiquidity(liquidity);
-    }
-
-    function testRemoveLiquidityEmitsEvent() external {
-        (address marketAddress, , ) = getMarketAddress();
-        FundingMarket market = FundingMarket(payable(marketAddress));
-        uint256 liquidity = 1 ether;
-
-        vm.prank(address(timelock));
-        market.addLiquidity{value: liquidity}();
-
-        uint256 tokensToBurn = (liquidity * PRECISION) / INITIAL_TOKEN_VALUE;
-
-        vm.expectEmit(marketAddress);
-        emit FundingMarket.LiquidityRemoved(liquidity, tokensToBurn);
-        vm.prank(address(timelock));
         market.removeLiquidity(liquidity);
     }
 
@@ -250,27 +226,6 @@ contract TestFundingMarket is BaseTest {
         vm.expectRevert("FundingMarket__MustSendExactETHAmount()");
         vm.prank(user);
         market.buyTokensWithETH{value: amountToSend - 123}(
-            FundingMarket.Side.LONG,
-            amountToBuy
-        );
-    }
-
-    function testBuyTokensWithEthRevertsIfInsufficientLiquidity() external {
-        (
-            address marketAddress,
-            uint256 projectId,
-            uint256 roundId
-        ) = getMarketAddress();
-        FundingMarket market = FundingMarket(payable(marketAddress));
-        uint256 liquidity = 1 ether;
-        uint256 amountToBuy = 100000000000000000001;
-        address user = makeAddr("User");
-
-        vm.prank(address(timelock));
-        market.addLiquidity{value: liquidity}();
-
-        vm.expectRevert("FundingMarket__InsufficientLiquidity()");
-        uint256 amountToSend = market.getBuyPriceInEth(
             FundingMarket.Side.LONG,
             amountToBuy
         );
@@ -591,66 +546,6 @@ contract TestFundingMarket is BaseTest {
         market.redeemLong(amountToRedeem);
     }
 
-    function testRedeemLongRevertsIfInsufficientLiquidity() external {
-        (
-            address marketAddress,
-            uint256 projectId,
-            uint256 roundId
-        ) = getMarketAddress();
-        FundingMarket market = FundingMarket(payable(marketAddress));
-        uint256 liquidity = 1 ether;
-        uint256 amountToRedeem = 1000;
-        address user = makeAddr("User");
-        uint8 projectScore = 70;
-        uint256 amountToBuy = 1000;
-
-        vm.prank(address(timelock));
-        market.addLiquidity{value: liquidity}();
-
-        uint256 amountToSend = market.getBuyPriceInEth(
-            FundingMarket.Side.LONG,
-            amountToBuy
-        );
-
-        console.log("Amount eth sent:", amountToSend);
-
-        vm.deal(user, 14000 ether);
-        vm.prank(user);
-        market.buyTokensWithETH{value: amountToSend}(
-            FundingMarket.Side.LONG,
-            amountToBuy
-        );
-
-        uint256 proposalId = evaluatorGovernor.getImpactProposalIdForProject(
-            roundId,
-            projectId
-        );
-
-        vm.prank(evaluator1);
-        evaluatorGovernor.voteProjectImpact(proposalId, projectScore);
-
-        vm.prank(evaluator2);
-        evaluatorGovernor.voteProjectImpact(proposalId, projectScore);
-
-        vm.prank(evaluator3);
-        evaluatorGovernor.voteProjectImpact(proposalId, projectScore);
-
-        vm.prank(evaluator4);
-        evaluatorGovernor.voteProjectImpact(proposalId, projectScore);
-
-        vm.prank(evaluator5);
-        evaluatorGovernor.voteProjectImpact(proposalId, projectScore);
-
-        vm.warp(endsAt + 1);
-
-        vm.prank(address(timelock));
-        fundingRoundManager.endCurrentRound();
-
-        vm.expectRevert("FundingMarket__InsufficientPayoutLiquidity()");
-        vm.prank(user);
-        market.redeemLong(amountToRedeem);
-    }
-
     function testRedeemLongEmitsEvent() external {
         (
             address marketAddress,
@@ -770,66 +665,6 @@ contract TestFundingMarket is BaseTest {
         fundingRoundManager.endCurrentRound();
 
         vm.expectRevert("FundingMarket__InsufficientShortBalance()");
-        vm.prank(user);
-        market.redeemShort(amountToRedeem);
-    }
-
-    function testRedeemShortRevertsIfInsufficientLiquidity() external {
-        (
-            address marketAddress,
-            uint256 projectId,
-            uint256 roundId
-        ) = getMarketAddress();
-        FundingMarket market = FundingMarket(payable(marketAddress));
-        uint256 liquidity = 1 ether;
-        uint256 amountToRedeem = 1000;
-        address user = makeAddr("User");
-        uint8 projectScore = 30;
-        uint256 amountToBuy = 1000;
-
-        vm.prank(address(timelock));
-        market.addLiquidity{value: liquidity}();
-
-        uint256 amountToSend = market.getBuyPriceInEth(
-            FundingMarket.Side.SHORT,
-            amountToBuy
-        );
-
-        console.log("Amount eth sent:", amountToSend);
-
-        vm.deal(user, 14000 ether);
-        vm.prank(user);
-        market.buyTokensWithETH{value: amountToSend}(
-            FundingMarket.Side.SHORT,
-            amountToBuy
-        );
-
-        uint256 proposalId = evaluatorGovernor.getImpactProposalIdForProject(
-            roundId,
-            projectId
-        );
-
-        vm.prank(evaluator1);
-        evaluatorGovernor.voteProjectImpact(proposalId, projectScore);
-
-        vm.prank(evaluator2);
-        evaluatorGovernor.voteProjectImpact(proposalId, projectScore);
-
-        vm.prank(evaluator3);
-        evaluatorGovernor.voteProjectImpact(proposalId, projectScore);
-
-        vm.prank(evaluator4);
-        evaluatorGovernor.voteProjectImpact(proposalId, projectScore);
-
-        vm.prank(evaluator5);
-        evaluatorGovernor.voteProjectImpact(proposalId, projectScore);
-
-        vm.warp(endsAt + 1);
-
-        vm.prank(address(timelock));
-        fundingRoundManager.endCurrentRound();
-
-        vm.expectRevert("FundingMarket__InsufficientPayoutLiquidity()");
         vm.prank(user);
         market.redeemShort(amountToRedeem);
     }

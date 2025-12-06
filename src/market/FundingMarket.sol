@@ -106,6 +106,17 @@ contract FundingMarket is Ownable, IFundingMarket, ReentrancyGuard {
             0,
             _evaluatorSbt
         );
+
+        if (msg.value > 0) {
+            s_ethCollateral += msg.value;
+
+            uint256 tokensToMint = (msg.value * PRECISION) /
+                INITIAL_TOKEN_VALUE;
+            i_longToken.mint(address(this), tokensToMint);
+            i_shortToken.mint(address(this), tokensToMint);
+
+            emit LiquidityAdded(msg.value);
+        }
     }
 
     receive() external payable {

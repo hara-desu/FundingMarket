@@ -126,6 +126,7 @@ contract TestFundingRoundManager is BaseTest {
         string memory uri = "uri";
         uint8 impact = 50;
         uint256 timelockBalanceBefore = address(timelock).balance;
+        uint256 initialLiquidity = 1 ether;
 
         // FundingRoundManager: Start a new round
         vm.prank(address(timelock));
@@ -135,7 +136,7 @@ contract TestFundingRoundManager is BaseTest {
 
         uint256 projectId = projectRegistry.registerProject{
             value: projectDeposit
-        }(uri);
+        }(uri, initialLiquidity);
 
         // EvaluatorGovernor: Vote on project impact
         uint256 roundId = fundingRoundManager.getCurrentRoundId();
@@ -183,6 +184,7 @@ contract TestFundingRoundManager is BaseTest {
         uint8 impact = 50;
         address projectAddress = makeAddr("Project address");
         vm.deal(projectAddress, 1 ether);
+        uint256 initialLiquidity = 1 ether;
 
         // FundingRoundManager: Start a new round
         vm.prank(address(timelock));
@@ -193,7 +195,7 @@ contract TestFundingRoundManager is BaseTest {
         vm.prank(projectAddress);
         uint256 projectId = projectRegistry.registerProject{
             value: projectDeposit
-        }(uri);
+        }(uri, initialLiquidity);
 
         // EvaluatorGovernor: Vote on project impact
         uint256 roundId = fundingRoundManager.getCurrentRoundId();

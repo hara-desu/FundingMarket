@@ -89,7 +89,8 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
     }
 
     function registerProject(
-        string calldata _metadataURI
+        string calldata _metadataURI,
+        uint256 initialLiquidity
     ) external payable restrictedForEvaluator returns (uint256) {
         if (bytes(_metadataURI).length == 0) {
             revert ProjectRegistry__InvalidMetadataUri();
@@ -113,7 +114,7 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
         s_projectsByOwner[msg.sender].push(s_projectId);
         s_projectsByRound[roundId].push(s_projectId);
 
-        createMarket(s_projectId, roundId);
+        createMarket(s_projectId, roundId, initialLiquidity);
         (, , , , uint256 endsAt, ) = i_roundManager.getRound(roundId);
         i_evaluatorGovernor.proposeImpactEval(roundId, s_projectId, endsAt);
 
@@ -159,15 +160,24 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
         emit MetadataEdited(_projectId, _metadataUri);
     }
 
-    function createMarket(uint256 _projectId, uint256 _roundId) internal {
+    function createMarket(
+        uint256 _projectId,
+        uint256 _roundId,
+        uint256 _initialLiquidity
+    ) internal {
         if (s_projectToMarketAddr[_projectId] != address(0)) {
             revert FundingMarketFactory__MarketAlreadyExists();
         }
 
+        require(
+            address(this).balance >= _initialLiquidity,
+            "Not enough budget"
+        );
+
         address market = address(
-            new FundingMarket(
-                _roundId,
+            new FundingMarket{value: _initialLiquidity}(
                 _projectId,
+                _roundId,
                 address(i_evaluatorGovernor),
                 i_timelock,
                 address(i_evaluatorSbt),
@@ -227,11 +237,7 @@ contract ProjectRegistry is IProjectRegistry, ReentrancyGuard {
         return PROJECT_DEPOSIT;
     }
 
-    receive() external payable {
-        revert("Do not send ETH directly");
-    }
+    receive() external payable {}
 
-    fallback() external payable {
-        revert("Invalid call");
-    }
+    fallback() external payable {}
 }

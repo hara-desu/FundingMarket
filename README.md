@@ -1,148 +1,175 @@
-# **Funding Market Protocol – README**
+# **FunDAO – Decentralized Funding Protocol**
 
-A decentralized funding protocol combining **prediction markets** and **evaluator governance** to allocate capital to public-good projects in discrete funding rounds.
+A fully on-chain protocol that allocates funding to public-good projects using a combination of:
 
-FunDAO coordinates three major subsystems:
+- **Prediction markets**
+- **Evaluator consensus**
+- **Token House (FUND) governance**
+- **Timelock-controlled treasury**
 
-- **Token House** (FUND token governance)
-- **Evaluator House** (SBT-based governance of evaluators)
-- **Prediction Markets** (LONG/SHORT markets for each project)
-- **Funding Round System** (allocates funds using evaluator score + market score)
-
-This repository contains the smart contracts implementing the protocol.
-
----
-
-## 📚 **Architecture Overview**
+This repository contains **only the smart contracts** implementing the protocol.  
+A frontend is **not included** in this version.
 
 ---
 
-## **1. Token House Governance (FUND + TokenHouseGovernor + Timelock)**
+# 📐 **System Architecture**
 
-The Token House governs:
+The protocol consists of four major subsystems:
 
-- Treasury funds
-- Round budgets
-
-### **Components**
-
-| Contract         | Purpose                                                          |
-| ---------------- | ---------------------------------------------------------------- |
-| `FunDAOToken`    | FUND governance token with ERC20Votes; mintable only by Timelock |
-| `TokenHouse`     | FUND-based governance (proposal → vote → queue → execute)        |
-| `FunDaoTimelock` | Executes approved proposals and owns FUND minting & treasury     |
-
-**Evaluator restriction:** Evaluators cannot hold FUND (enforced in token contract).
-
-**Timelock control:** Only the Timelock may mint FUND and execute treasury actions.
+1. **Token House Governance** — FUND token holders govern treasury usage & round budgets
+2. **Evaluator House Governance** — evaluator identity, reputation, and impact scoring
+3. **Prediction Markets** — LONG/SHORT markets per project capturing market sentiment
+4. **Funding Rounds** — allocation of funds using evaluator score + market score
 
 ---
 
-## **2. Evaluator House (EvaluatorSBT + EvaluatorGovernor)**
+# 1. **Token House Governance**
 
-The Evaluator House manages evaluator identity, membership, and project impact scoring.
+( `FunDAOToken.sol`, `TokenHouseGovernor.sol`, `FunDaoTimelock.sol` )
 
-### **Components**
+The Token House controls all treasury spending and high-level protocol actions.
 
-| Contract            | Purpose                                                        |
-| ------------------- | -------------------------------------------------------------- |
-| `EvaluatorSBT`      | Soulbound ERC721 storing evaluator identity + reputation       |
-| `EvaluatorGovernor` | SBT-based governance for evaluators + impact scoring proposals |
+### Components
 
-### **Impact Evaluation**
+| Contract           | Purpose                                                                 |
+| ------------------ | ----------------------------------------------------------------------- |
+| **FunDAOToken**    | ERC20Votes governance token (FUND). Mintable only by timelock.          |
+| **TokenHouse**     | Governance module (proposal → vote → queue → execute).                  |
+| **FunDaoTimelock** | Timelock + treasury. Executes approved proposals and mints FUND tokens. |
 
-For each project:
+### Notes
 
-impactScore = Σ(score \* reputation) / Σ(reputation)
-
-Evaluators can:
-
-- Add evaluators
-- Remove evaluators
-- Adjust reputation
-- Vote on project impact (0–100 scores)
-- Finalize impact score after voting period
+- Evaluators are **forbidden** from holding FUND (enforced in the token contract).
+- Treasury ETH is held by the **timelock**, ensuring all spending is governance-gated.
+- Rounds, evaluator payments, market liquidity adjustments, and registry funding all require proposals.
 
 ---
 
-## **3. Funding Markets (FundingMarket)**
+# 2. **Evaluator House Governance**
 
-For every project in a round, a **LONG/SHORT AMM-based prediction market** is created automatically.
+( `EvaluatorSBT.sol`, `EvaluatorGovernor.sol` )
 
-### **Token meaning**
+Manages evaluator identity, governance, and scoring.
 
-| Token     | Meaning                                   |
-| --------- | ----------------------------------------- |
-| **LONG**  | Pays proportional to final impact score S |
-| **SHORT** | Pays proportional to 100 – S              |
+### Components
 
-### **Features**
+| Contract              | Purpose                                                       |
+| --------------------- | ------------------------------------------------------------- |
+| **EvaluatorSBT**      | Soulbound token representing evaluator identity + reputation. |
+| **EvaluatorGovernor** | SBT-based governance system for evaluators.                   |
 
-- Buy/sell LONG or SHORT with ETH
-- Liquidity added by Timelock
-- LP trading revenue tracked
-- Final score fetched from EvaluatorGovernor
-- Redemption based on payout formula:
+### Capabilities
 
-LONG pays: (S / 100) \* _ INITIAL_TOKEN_VALUE
-SHORT pays: ((100 - S) / 100) \* _ INITIAL_TOKEN_VALUE
-
-### **Market Score**
-
-FundingRoundManager uses market score as:
-
-marketScore = probLong \* 100
-
-Where:
-
-probLong = longSold / (longSold + shortSold)
+- Add or remove evaluators
+- Modify evaluator reputation
+- Submit and vote on **impact scores** for each project
+- Finalize project impact scores after voting period
 
 ---
 
-## **4. Project Registry**
+# 3. **Prediction Markets**
 
-Allows anyone **except evaluators** to register a project in the active funding round.
+( `FundingMarket.sol`, `FundingMarketToken.sol` )
+
+Each registered project in a round receives a LONG/SHORT AMM-based prediction market.
+
+### Token Payout Logic
+
+| Token     | Pays                                       |
+| --------- | ------------------------------------------ |
+| **LONG**  | proportional to _finalImpactScore_         |
+| **SHORT** | proportional to _(100 - finalImpactScore)_ |
+
+### Market Behavior
+
+- Users may buy/sell LONG or SHORT using ETH
+- Markets become operational immediately once **initial liquidity is added by ProjectRegistry**
+- Further liquidity additions or withdrawals can be made **only by the timelock**
+- LONG/SHORT tokens are minted when liquidity is added and burned when redeemed
+
+---
+
+# 4. **Project Registry**
+
+( `ProjectRegistry.sol` )
+
+Allows anyone **except evaluators** to register projects for the active funding round.
 
 ### Responsibilities
 
-- Collects a refundable project deposit
-- Creates a new **FundingMarket** for each registered project
 - Stores project metadata
-- Tracks projects by owner and by round
-- Returns deposits after round end
+- Collects refundable project deposits
+- Creates a **FundingMarket** for each project
+- Holds a **liquidity budget**, funded by the DAO
+- Seeds each new FundingMarket with **initial liquidity**
+- Tracks projects by round & owner
+
+### DAO Funding Model
+
+- The DAO periodically sends ETH to `ProjectRegistry`
+- Registry uses this liquidity budget when instantiating markets
+- Markets are thus **born liquid**, improving usability and reducing governance overhead
+
+The timelock continues to have ultimate control over liquidity via governance actions.
 
 ---
 
-## **5. Funding Round Manager**
+# 5. **Funding Round Manager**
 
-Handles the lifecycle and payout of funding rounds.
+( `FundingRoundManager.sol` )
 
-### **Workflow**
-
-1. **TokenHouse → startRound(budget, endsAt)** (with ETH)
-2. Projects register & Markets trade
-3. Evaluators vote on impact scores
-4. **TokenHouse → endCurrentRound()**
-
-For each project:
-
-finalScore = 80% \* evaluatorScore + 20% \* marketScore
-payment = (capPerProject \* finalScore) / 100
-
-Any unspent budget returns to Treasury.
-
-Project owners withdraw using: withdrawAllPayments()
-
----
-
-## **6. Evaluator Incentives**
-
-Evaluators receive equal payments for participation.
+Coordinates the lifecycle and payouts of funding rounds.
 
 ### Workflow
 
-1. Timelock funds the round using `fundRound()`
-2. Evaluators register via `registerForRoundPayout(roundId)`
-3. After round end, they withdraw:
+1. **TokenHouse → startRound(budget, endsAt)** (via governance proposal)
+2. Projects register; Markets trade
+3. Evaluators score each project
+4. **TokenHouse → endCurrentRound()**
+   - Evaluator and market scores are combined
+   - Payments are calculated and allocated
 
-payment = roundBudget / registeredEvaluators
+Unused round budget is returned to the treasury.
+
+---
+
+# 6. **Evaluator Incentives**
+
+( `EvaluatorIncentives.sol` )
+
+Ensures evaluators are compensated for round participation.
+
+### Lifecycle
+
+1. The DAO funds the evaluator pool
+2. Evaluators register for that round’s payout
+3. After the round ends, each registered evaluator can withdraw
+
+---
+
+# 🧪 **Development**
+
+This repository uses **Foundry** for smart contract development.
+
+### Install Foundry
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+### Build
+
+```
+forge build
+```
+
+### Test
+
+```
+forge test
+```
+
+## Frontend
+
+This repository is a smart-contract–only implementation of the FunDAO protocol.

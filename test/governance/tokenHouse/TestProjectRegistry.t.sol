@@ -9,33 +9,43 @@ contract TestProjectRegistry is BaseTest {
     //--------------------- registerProject ---------------------//
     function testRegisterProjectRevertsIfCalledByEvaluator() external {
         string memory uri = "uri";
+        uint256 initialLiquidity = 1 ether;
 
         vm.expectRevert("Evaluators are restricted from registering projects");
         vm.prank(evaluator1);
-        projectRegistry.registerProject(uri);
+        projectRegistry.registerProject(uri, initialLiquidity);
     }
 
     function testRegisterProjectRevertsIfNoMetadataProvided() external {
         string memory uri = "";
+        uint256 initialLiquidity = 1 ether;
 
         vm.expectRevert("ProjectRegistry__InvalidMetadataUri()");
-        projectRegistry.registerProject(uri);
+        projectRegistry.registerProject(uri, initialLiquidity);
     }
 
     function testRegisterProjectRevertsIfInvalidDepositAmount() external {
         string memory uri = "uri";
         uint256 depositAmount = 123;
+        uint256 initialLiquidity = 1 ether;
 
         vm.expectRevert("ProjectRegistry__InvalidDepositAmount()");
-        projectRegistry.registerProject{value: depositAmount}(uri);
+        projectRegistry.registerProject{value: depositAmount}(
+            uri,
+            initialLiquidity
+        );
     }
 
     function testRegisterProjectRevertsIfNoActiveRound() external {
         string memory uri = "uri";
         uint256 depositAmount = projectRegistry.getProjectDepositAmount();
+        uint256 initialLiquidity = 1 ether;
 
         vm.expectRevert("ProjectRegistry__InvalidRoundId()");
-        projectRegistry.registerProject{value: depositAmount}(uri);
+        projectRegistry.registerProject{value: depositAmount}(
+            uri,
+            initialLiquidity
+        );
     }
 
     function testRegisterProjectEmitsEvent() external {
@@ -43,6 +53,7 @@ contract TestProjectRegistry is BaseTest {
         uint256 depositAmount = projectRegistry.getProjectDepositAmount();
         uint256 roundBudget = 10 ether;
         uint256 endsAt = 2000;
+        uint256 initialLiquidity = 1 ether;
 
         vm.prank(address(timelock));
         fundingRoundManager.startRound{value: roundBudget}(roundBudget, endsAt);
@@ -55,7 +66,10 @@ contract TestProjectRegistry is BaseTest {
             currentRoundId,
             projectId + 1
         );
-        projectRegistry.registerProject{value: depositAmount}(uri);
+        projectRegistry.registerProject{value: depositAmount}(
+            uri,
+            initialLiquidity
+        );
     }
 
     //--------------------- withdrawAllDepositForRound ---------------------//
@@ -104,6 +118,7 @@ contract TestProjectRegistry is BaseTest {
         address project = makeAddr("Project");
         uint8 projectScore = 80;
         uint256 deposit = projectRegistry.getProjectDepositAmount();
+        uint256 initialLiquidity = 1 ether;
 
         vm.prank(address(timelock));
         fundingRoundManager.startRound{value: roundBudget}(roundBudget, endsAt);
@@ -113,7 +128,8 @@ contract TestProjectRegistry is BaseTest {
         vm.deal(project, 1 ether);
         vm.prank(project);
         uint256 projectId = projectRegistry.registerProject{value: deposit}(
-            uri
+            uri,
+            initialLiquidity
         );
 
         uint256 dep = projectRegistry.getDepositForRound(
@@ -161,6 +177,7 @@ contract TestProjectRegistry is BaseTest {
         address project = makeAddr("Project");
         uint8 projectScore = 80;
         uint256 deposit = projectRegistry.getProjectDepositAmount();
+        uint256 initialLiquidity = 1 ether;
 
         vm.prank(address(timelock));
         fundingRoundManager.startRound{value: roundBudget}(roundBudget, endsAt);
@@ -170,7 +187,8 @@ contract TestProjectRegistry is BaseTest {
         vm.deal(project, 1 ether);
         vm.prank(project);
         uint256 projectId = projectRegistry.registerProject{value: deposit}(
-            uri
+            uri,
+            initialLiquidity
         );
 
         uint256 proposalId = evaluatorGovernor.getImpactProposalIdForProject(
@@ -212,6 +230,7 @@ contract TestProjectRegistry is BaseTest {
         string memory uri = "uri";
         address project = makeAddr("Project");
         uint256 deposit = projectRegistry.getProjectDepositAmount();
+        uint256 initialLiquidity = 1 ether;
 
         vm.prank(address(timelock));
         fundingRoundManager.startRound{value: roundBudget}(roundBudget, endsAt);
@@ -221,7 +240,8 @@ contract TestProjectRegistry is BaseTest {
         vm.deal(project, 1 ether);
         vm.prank(project);
         uint256 projectId = projectRegistry.registerProject{value: deposit}(
-            uri
+            uri,
+            initialLiquidity
         );
 
         vm.expectRevert("Not the project's owner");
@@ -234,6 +254,7 @@ contract TestProjectRegistry is BaseTest {
         string memory uri = "uri";
         address project = makeAddr("Project");
         uint256 deposit = projectRegistry.getProjectDepositAmount();
+        uint256 initialLiquidity = 1 ether;
 
         vm.prank(address(timelock));
         fundingRoundManager.startRound{value: roundBudget}(roundBudget, endsAt);
@@ -243,7 +264,8 @@ contract TestProjectRegistry is BaseTest {
         vm.deal(project, 1 ether);
         vm.prank(project);
         uint256 projectId = projectRegistry.registerProject{value: deposit}(
-            uri
+            uri,
+            initialLiquidity
         );
 
         vm.expectRevert("ProjectRegistry__InvalidMetadataUri()");
@@ -257,6 +279,7 @@ contract TestProjectRegistry is BaseTest {
         string memory uri = "uri";
         address project = makeAddr("Project");
         uint256 deposit = projectRegistry.getProjectDepositAmount();
+        uint256 initialLiquidity = 1 ether;
 
         vm.prank(address(timelock));
         fundingRoundManager.startRound{value: roundBudget}(roundBudget, endsAt);
@@ -266,7 +289,8 @@ contract TestProjectRegistry is BaseTest {
         vm.deal(project, 1 ether);
         vm.prank(project);
         uint256 projectId = projectRegistry.registerProject{value: deposit}(
-            uri
+            uri,
+            initialLiquidity
         );
 
         vm.expectEmit(address(projectRegistry));

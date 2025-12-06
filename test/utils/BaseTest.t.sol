@@ -111,6 +111,8 @@ contract BaseTest is Test {
             address(timelock)
         );
 
+        vm.deal(address(projectRegistry), 100 ether);
+
         fundingRoundManager.setProjectRegistry(address(projectRegistry));
         evaluatorGovernor.setProjectRegistry(address(projectRegistry));
         evaluatorGovernor.setRoundManager(address(fundingRoundManager));
